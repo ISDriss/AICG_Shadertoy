@@ -338,7 +338,7 @@ window.addEventListener("resize", resizeCanvas);
 
 async function loadDefaultShader() {
   try {
-    const response = await fetch("./raymarch_glass.wgsl");
+    const response = await fetch("./shader.wgsl");
     if (response.ok) {
       fallbackShader = await response.text();
     } else {

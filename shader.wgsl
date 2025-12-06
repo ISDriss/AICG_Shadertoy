@@ -68,57 +68,212 @@ fn get_material_color(mat_id: f32, p: vec3<f32>) -> vec3<f32> {
   return vec3<f32>(0.5, 0.5, 0.5);
 }
 
-// SDF Primitives
-fn sd_sphere(p: vec3<f32>, r: f32) -> f32 {
-  return length(p) - r;
+//SDF Primitives
+struct Primitive {
+  // meta
+  kind: u32,
+  material_id: u32,
+  _pad0: u32,         // reserved / padding
+  _pad1: u32,         // reserved / padding
+
+  // common spatial anchor
+  center: vec3<f32>,  // world-space center / reference point
+  param0: f32,        // main scalar parameter
+
+  // extra shape parameters
+  params1: vec4<f32>,
+  params2: vec4<f32>
 }
 
-fn sd_box(p: vec3<f32>, b: vec3<f32>) -> f32 {
-  let q = abs(p) - b;
+// Sphere
+// kind = SPHERE
+// center = center
+// radius = param0
+fn sd_sphere(p: vec3<f32>, s: Primitive) -> f32 {
+  return length(p - s.center) - s.param0;
+}
+
+// Plane
+// kind = PLANE
+// normal   = params1 (must be normalized)
+// offset h = param0   (equation: dot(p, n) + h = 0)
+fn sd_plane(p: vec3<f32>, pl: Primitive) -> f32 {
+  let n = normalize(pl.params1.xyz);
+  return dot(p, n) + pl.param0;
+}
+
+// Box
+// kind = BOX
+// center = center
+// size = params1
+fn sd_box(p: vec3<f32>, b: Primitive) -> f32 {
+  let q = abs(p - b.center) - b.params1.xyz;
   return length(max(q, vec3<f32>(0.0))) + min(max(q.x, max(q.y, q.z)), 0.0);
 }
 
-fn sd_plane(p: vec3<f32>, n: vec3<f32>, h: f32) -> f32 {
-  return dot(p, n) + h;
+// Rounded Box
+// kind = ROUNDED_BOX
+// center = center
+// size = params1
+// radius = param0
+fn sd_rounded_box(p: vec3<f32>, rb: Primitive) -> f32 {
+  let q = abs(p - rb.center) - rb.params1.xyz;
+  return length(max(q, vec3<f32>(0.0))) + min(max(q.x, max(q.y, q.z)), 0.0) - rb.param0;
 }
 
-fn sd_rounded_box(p: vec3<f32>, b: vec3<f32>, r: f32) -> f32 {
-  let q = abs(p) - b;
-  return length(max(q, vec3<f32>(0.0))) + min(max(q.x, max(q.y, q.z)), 0.0) - r;
+// Cylinder
+// kind = CYLINDER
+// center = center
+// radius = params1.x
+// height = param0
+fn sd_cylinder(p: vec3<f32>, cy: Primitive) -> f32 {
+  let q = abs(vec2<f32>(length(p.xz - cy.center.xz), p.y - cy.center.y)) - vec2<f32>(cy.params1.x, cy.param0 * 0.5);
+  return min(max(q.x, q.y), 0.0) + length(max(q, vec2<f32>(0.0)));
+}
+
+// Torus
+// kind = TORUS
+// center = center
+// major_radius = param0
+// minor_radius = params1.x
+fn sd_torus(p: vec3<f32>, t: Primitive) -> f32 {
+  let q = vec2<f32>(length(p.xz - t.center.xz) - t.param0, p.y - t.center.y);
+  return length(q) - t.params1.x;
+}
+
+// Capsule
+// kind = CAPSULE
+// a = params1
+// b = params2
+// radius = param0
+fn sd_capsule(p: vec3<f32>, c: Primitive) -> f32 {
+  let pa = p - c.params1.xyz;
+  let ba = c.params2.xyz - c.params1.xyz;
+  let h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0);
+  return length(pa - ba * h) - c.param0;
+}
+
+const SPHERE      : u32 = 0u;
+const PLANE       : u32 = 1u;
+const BOX         : u32 = 2u;
+const ROUNDED_BOX : u32 = 3u;
+const CYLINDER    : u32 = 4u;
+const TORUS       : u32 = 5u;
+const CAPSULE     : u32 = 6u;
+
+fn sd_primitive(p: vec3<f32>, prim: Primitive) -> f32 {
+  switch (prim.kind) {
+    case SPHERE: { // SPHERE
+      return sd_sphere(p, prim);
+    }
+    case PLANE: { // PLANE
+      return sd_plane(p, prim);
+    }
+    case BOX: { // BOX
+      return sd_box(p, prim);
+    }
+    case ROUNDED_BOX: { // ROUNDED_BOX
+      return sd_rounded_box(p, prim);
+    }
+    case CYLINDER: { // CYLINDER
+      return sd_cylinder(p, prim);
+    }
+    case TORUS: { // TORUS
+      return sd_torus(p, prim);
+    }
+    case CAPSULE: { // CAPSULE
+      return sd_capsule(p, prim);
+    }
+    default: {
+      return 1e6; // large distance for unknown primitive
+    }
+  }
+}
+
+// Scene
+const SCENE_PRIM_COUNT: u32 = 5u;
+
+struct Scene {
+  primitives: array<Primitive, SCENE_PRIM_COUNT>
+}
+
+fn create_scene() -> Scene {
+  var scene: Scene;
+
+  // Ground Plane (y = -1)
+  scene.primitives[0] = Primitive(
+    PLANE,
+    u32(MAT_GROUND),
+    0u,
+    0u,
+    vec3<f32>(0.0, 0.0, 0.0),
+    1.0,
+    vec4<f32>(0.0, 1.0, 0.0, 0.0),
+    vec4<f32>(0.0)
+  );
+
+  // Glass sphere
+  scene.primitives[1] = Primitive(
+    SPHERE,
+    u32(MAT_GLASS),
+    0u,
+    0u,
+    vec3<f32>(0.0, 0.0, 0.0),
+    0.8,
+    vec4<f32>(0.0),
+    vec4<f32>(0.0)
+  );
+
+  // Metal sphere
+  scene.primitives[2] = Primitive(
+    SPHERE,
+    u32(MAT_METAL),
+    0u,
+    0u,
+    vec3<f32>(2.0, -0.2, 0.0),
+    0.8,
+    vec4<f32>(0.0),
+    vec4<f32>(0.0)
+  );
+
+  // Water rounded box
+  scene.primitives[3] = Primitive(
+    ROUNDED_BOX,
+    u32(MAT_WATER),
+    0u,
+    0u,
+    vec3<f32>(-2.0, -0.5, 0.0),
+    0.1, // corner radius
+    vec4<f32>(0.7, 0.5, 0.7, 0.0), // size
+    vec4<f32>(0.0)
+  );
+
+  // Diffuse sphere
+  scene.primitives[4] = Primitive(
+    SPHERE,
+    u32(MAT_DIFFUSE),
+    0u,
+    0u,
+    vec3<f32>(0.0, -0.5, 2.0),
+    0.5,
+    vec4<f32>(0.0),
+    vec4<f32>(0.0)
+  );
+
+  return scene;
 }
 
 // Scene description - returns (distance, material_id)
 fn get_dist(p: vec3<f32>) -> vec2<f32> {
   var res = vec2<f32>(MAX_DIST, -1.0);
+  let scene = create_scene();
 
-  // Ground
-  let ground_dist = sd_plane(p, vec3<f32>(0.0, 1.0, 0.0), 1.0);
-  if ground_dist < res.x {
-    res = vec2<f32>(ground_dist, MAT_GROUND);
-  }
-
-  // Glass sphere
-  let glass_sphere_dist = sd_sphere(p - vec3<f32>(0.0, 0.0, 0.0), 0.8);
-  if glass_sphere_dist < res.x {
-    res = vec2<f32>(glass_sphere_dist, MAT_GLASS);
-  }
-
-  // Metal sphere
-  let metal_sphere_dist = sd_sphere(p - vec3<f32>(2.0, -0.2, 0.0), 0.8);
-  if metal_sphere_dist < res.x {
-    res = vec2<f32>(metal_sphere_dist, MAT_METAL);
-  }
-
-  // Water box
-  let water_box_dist = sd_rounded_box(p - vec3<f32>(-2.0, -0.5, 0.0), vec3<f32>(0.7, 0.5, 0.7), 0.1);
-  if water_box_dist < res.x {
-    res = vec2<f32>(water_box_dist, MAT_WATER);
-  }
-
-  // Small Diffuse sphere
-  let diffuse_sphere_dist = sd_sphere(p - vec3<f32>(0.0, -0.5, 2.0), 0.5);
-  if diffuse_sphere_dist < res.x {
-    res = vec2<f32>(diffuse_sphere_dist, MAT_DIFFUSE);
+  for (var i: u32 = 0u; i < SCENE_PRIM_COUNT; i = i + 1u) {
+    let prim = scene.primitives[i];
+    let dist = sd_primitive(p, prim);
+    if dist < res.x {
+      res = vec2<f32>(dist, f32(prim.material_id));
+    }
   }
 
   return res;
@@ -126,21 +281,21 @@ fn get_dist(p: vec3<f32>) -> vec2<f32> {
 
 // Ray marching
 fn ray_march(ro: vec3<f32>, rd: vec3<f32>) -> vec2<f32> {
-  var d = 0.0;
+  var q = 0.0;
   var mat_id = -1.0;
 
   for (var i = 0; i < MAX_STEPS; i++) {
-    let p = ro + rd * d;
+    let p = ro + rd * q;
     let dist_mat = get_dist(p);
-    d += abs(dist_mat.x);
+    q += abs(dist_mat.x);
     mat_id = dist_mat.y;
 
-    if abs(dist_mat.x) < SURF_DIST || d > MAX_DIST {
+    if abs(dist_mat.x) < SURF_DIST || q > MAX_DIST {
       break;
     }
   }
 
-  return vec2<f32>(d, mat_id);
+  return vec2<f32>(q, mat_id);
 }
 
 // Calculate normal
