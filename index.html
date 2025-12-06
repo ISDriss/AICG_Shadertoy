@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WebGPU Shadertoy</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.css"
+    />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/mode/simple.min.js"></script>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body class="font-mono bg-gray-900 text-white overflow-hidden">
+    <div
+      id="container"
+      class="flex w-screen h-screen portrait:flex-col landscape:flex-row"
+    >
+      <div
+        id="canvas-container"
+        class="relative flex items-center justify-center bg-black portrait:w-full portrait:h-1/2 landscape:w-1/2 landscape:h-full"
+      >
+        <canvas id="canvas" class="block"></canvas>
+        <div
+          id="error-message"
+          class="absolute bottom-2.5 left-2.5 right-2.5 text-red-500 text-xs bg-black/80 p-1.5 rounded hidden max-h-24 overflow-y-auto z-10"
+        ></div>
+        <button
+          id="fullscreen-btn"
+          class="absolute bottom-2.5 right-2.5 p-2 bg-black/60 hover:bg-black/80 text-white rounded transition-all z-20"
+          title="Toggle Fullscreen (F)"
+        >
+          <svg
+            id="fullscreen-enter-icon"
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+          >
+            <path
+              d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"
+            />
+          </svg>
+          <svg
+            id="fullscreen-exit-icon"
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            class="hidden"
+          >
+            <path
+              d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"
+            />
+          </svg>
+        </button>
+      </div>
+      <div
+        id="editor-container"
+        class="flex flex-col bg-gray-800 portrait:w-full portrait:h-1/2 landscape:w-1/2 landscape:h-full"
+      >
+        <div
+          class="p-2.5 font-bold flex flex-col gap-2"
+          style="
+            background: #1d2021;
+            color: #ebdbb2;
+            border-bottom: 1px solid #3c3836;
+          "
+        >
+          <div class="flex items-center justify-between gap-2">
+            <div class="flex items-center gap-2">
+              <svg
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <path d="M12 2L2 7L12 12L22 7L12 2Z" />
+                <path d="M2 17L12 22L22 17" />
+                <path d="M2 12L12 17L22 12" />
+              </svg>
+              <span>[WGSL] Fragment Shader</span>
+            </div>
+          </div>
+          <div
+            class="w-full h-px"
+            style="background-color: #665c54; opacity: 0.5"
+          ></div>
+          <div class="flex items-center justify-between gap-3">
+            <div class="flex flex-wrap items-center gap-3">
+              <span class="text-sm font-normal whitespace-nowrap"
+                ><span style="opacity: 0.5">FPS:</span>
+                <span id="fps">0</span>
+                <span style="opacity: 0.5; margin-left: 8px">Frame:</span>
+                <span id="frame-time">0ms</span></span
+              >
+              <span class="text-sm font-normal whitespace-nowrap"
+                ><span style="opacity: 0.5">Compile:</span>
+                <span id="compile-time"></span
+              ></span>
+            </div>
+            <button
+              id="compile-btn"
+              class="px-3 py-1 text-sm rounded bg-green-700 hover:bg-green-600 transition-colors whitespace-nowrap"
+              title="Compile (Ctrl/Cmd+Enter)"
+            >
+              Compile
+            </button>
+          </div>
+        </div>
+        <div class="flex flex-1 overflow-hidden">
+          <div id="code-editor-container" class="flex-1 overflow-hidden">
+            <textarea id="code-editor"></textarea>
+          </div>
+          <div
+            id="uniforms-panel"
+            class="flex transition-all duration-300"
+            style="width: 250px"
+          >
+            <div
+              id="panel-toggle"
+              class="w-6 cursor-pointer hover:opacity-80 flex items-center justify-center"
+              style="background: #3c3836; color: #a89984"
+            >
+              <span id="toggle-arrow">▶</span>
+            </div>
+            <div
+              id="panel-content"
+              class="flex-1 flex flex-col overflow-hidden"
+              style="background: #1d2021"
+            >
+              <div
+                class="p-2 font-bold flex items-center gap-2"
+                style="color: #ebdbb2; border-bottom: 1px solid #3c3836"
+              >
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
+                  <rect x="3" y="3" width="7" height="7" />
+                  <rect x="14" y="3" width="7" height="7" />
+                  <rect x="14" y="14" width="7" height="7" />
+                  <rect x="3" y="14" width="7" height="7" />
+                </svg>
+                <span>Uniforms</span>
+              </div>
+              <div class="flex-1 overflow-y-auto overflow-x-hidden p-3">
+                <table class="w-full text-sm" style="color: #ebdbb2">
+                  <tbody id="uniforms-table"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <script src="main.js"></script>
+  </body>
+</html>
