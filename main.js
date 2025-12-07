@@ -138,6 +138,133 @@ const uniformsStruct = `struct Uniforms {
 }
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;`;
 
+// Scene buffer
+let sceneBuffer;
+
+const MAX_PRIMS = 16;             // must match WGSL MAX_PRIMS
+const PRIMITIVE_SIZE = 64;        // bytes (Primitive = 4 * vec4 = 64)
+const SCENE_HEADER_SIZE = 32;     // bytes (count + padding + vec3<u32>)
+const SCENE_SIZE = SCENE_HEADER_SIZE + MAX_PRIMS * PRIMITIVE_SIZE;
+
+// Match WGSL constants
+const KIND_SPHERE      = 0;
+const KIND_PLANE       = 1;
+const KIND_BOX         = 2;
+const KIND_ROUNDED_BOX = 3;
+const KIND_CYLINDER    = 4;
+const KIND_TORUS       = 5;
+const KIND_CAPSULE     = 6;
+
+const MAT_GROUND  = 0;
+const MAT_METAL   = 1;
+const MAT_GLASS   = 2;
+const MAT_WATER   = 3;
+const MAT_DIFFUSE = 4;
+
+// This array is what your future UI will modify
+let scenePrimitives = [
+  // Ground plane
+  {
+    kind: KIND_PLANE,
+    materialId: MAT_GROUND,
+    center: [0.0, 0.0, 0.0],         // unused for plane
+    param0: 1.0,                     // offset h
+    params1: [0.0, 1.0, 0.0, 0.0],   // normal
+    params2: [0.0, 0.0, 0.0, 0.0],
+  },
+  // Glass sphere
+  {
+    kind: KIND_SPHERE,
+    materialId: MAT_GLASS,
+    center: [0.0, 0.0, 0.0],
+    param0: 0.8,
+    params1: [0.0, 0.0, 0.0, 0.0],
+    params2: [0.0, 0.0, 0.0, 0.0],
+  },
+  // Metal sphere
+  {
+    kind: KIND_SPHERE,
+    materialId: MAT_METAL,
+    center: [2.0, -0.2, 0.0],
+    param0: 0.8,
+    params1: [0.0, 0.0, 0.0, 0.0],
+    params2: [0.0, 0.0, 0.0, 0.0],
+  },
+  // Water rounded box
+  {
+    kind: KIND_ROUNDED_BOX,
+    materialId: MAT_WATER,
+    center: [-2.0, -0.5, 0.0],
+    param0: 0.1,                           // corner radius
+    params1: [0.7, 0.5, 0.7, 0.0],         // size
+    params2: [0.0, 0.0, 0.0, 0.0],
+  },
+  // Diffuse sphere
+  {
+    kind: KIND_SPHERE,
+    materialId: MAT_DIFFUSE,
+    center: [0.0, -0.5, 2.0],
+    param0: 0.5,
+    params1: [0.0, 0.0, 0.0, 0.0],
+    params2: [0.0, 0.0, 0.0, 0.0],
+  },
+];
+
+function buildSceneData(primitives) {
+  const buffer = new ArrayBuffer(SCENE_SIZE);
+  const u32 = new Uint32Array(buffer);
+  const f32 = new Float32Array(buffer);
+
+  const count = Math.min(primitives.length, MAX_PRIMS);
+
+  // Scene header = 32 bytes = 8 * 4 bytes
+  // Each Primitive = 64 bytes = 16 * 4 bytes
+
+  u32[0] = count; // count
+  u32[1] = 0;     // _pad.x
+  u32[2] = 0;     // _pad.y
+  u32[3] = 0;     // _pad.z
+
+  function writePrimitive(index, spec) {
+    const headerWords = SCENE_HEADER_SIZE / 4;      // 32 / 4 = 8
+    const wordsPerPrimitive = PRIMITIVE_SIZE / 4;   // 64 / 4 = 16
+
+    const baseIndex = headerWords + index * wordsPerPrimitive;
+
+    // header: x = kind, y = materialId
+    u32[baseIndex + 0] = spec.kind;
+    u32[baseIndex + 1] = spec.materialId;
+    u32[baseIndex + 2] = 0; // unused
+    u32[baseIndex + 3] = 0; // unused
+
+    // center_param0
+    f32[baseIndex + 4] = spec.center[0];
+    f32[baseIndex + 5] = spec.center[1];
+    f32[baseIndex + 6] = spec.center[2];
+    f32[baseIndex + 7] = spec.param0;
+
+    // params1
+    f32[baseIndex + 8]  = spec.params1[0];
+    f32[baseIndex + 9]  = spec.params1[1];
+    f32[baseIndex + 10] = spec.params1[2];
+    f32[baseIndex + 11] = spec.params1[3];
+
+    // params2
+    f32[baseIndex + 12] = spec.params2[0];
+    f32[baseIndex + 13] = spec.params2[1];
+    f32[baseIndex + 14] = spec.params2[2];
+    f32[baseIndex + 15] = spec.params2[3];
+  }
+
+  for (let i = 0; i < count; i++) {
+    writePrimitive(i, primitives[i]);
+  }
+
+  // Unused slots (if any) can stay zeroed
+
+  return buffer;
+}
+
 async function initWebGPU() {
   if (!navigator.gpu) return ((errorMsg.textContent = "WebGPU not supported"), false);
   const adapter = await navigator.gpu.requestAdapter();
@@ -146,10 +273,20 @@ async function initWebGPU() {
   context = canvas.getContext("webgpu");
   const format = navigator.gpu.getPreferredCanvasFormat();
   context.configure({ device, format });
+
   uniformBuffer = device.createBuffer({
     size: 64,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
   });
+
+  // create and upload initial scene buffer
+  const sceneData = buildSceneData(scenePrimitives);
+  sceneBuffer = device.createBuffer({
+    size: SCENE_SIZE,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+  });
+  device.queue.writeBuffer(sceneBuffer, 0, new Uint8Array(sceneData));
+
   await compileShader(fallbackShader);
   return true;
 }
@@ -180,6 +317,11 @@ async function compileShader(fragmentCode) {
           visibility: GPUShaderStage.FRAGMENT,
           buffer: { type: "uniform" },
         },
+        {
+          binding: 1,
+          visibility: GPUShaderStage.FRAGMENT,
+          buffer: { type: "uniform" },
+        },
       ],
     });
     pipeline = device.createRenderPipeline({
@@ -196,7 +338,10 @@ async function compileShader(fragmentCode) {
     });
     bindGroup = device.createBindGroup({
       layout: bindGroupLayout,
-      entries: [{ binding: 0, resource: { buffer: uniformBuffer } }],
+      entries: [
+        { binding: 0, resource: { buffer: uniformBuffer } },
+        { binding: 1, resource: { buffer: sceneBuffer } },
+      ],
     });
     $("compile-time").textContent = `${(performance.now() - start).toFixed(2)}ms`; // prettier-ignore
   } catch (e) {
@@ -206,6 +351,9 @@ async function compileShader(fragmentCode) {
 }
 
 function render() {
+  // const sceneData = buildSceneData(scenePrimitives);
+  // device.queue.writeBuffer(sceneBuffer, 0, new Uint8Array(sceneData));
+
   if (!pipeline) return;
   const currentTime = performance.now();
   const deltaTime = (currentTime - lastFrameTime) / 1000;
