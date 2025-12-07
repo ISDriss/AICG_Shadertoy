@@ -68,89 +68,95 @@ fn get_material_color(mat_id: f32, p: vec3<f32>) -> vec3<f32> {
   return vec3<f32>(0.5, 0.5, 0.5);
 }
 
-//SDF Primitives
+// SDF Primitives
 struct Primitive {
-  // meta
-  kind: u32,
-  material_id: u32,
-  _pad0: u32,         // reserved / padding
-  _pad1: u32,         // reserved / padding
+  // header: x = kind, y = material_id, z/w unused
+  header: vec4<u32>,
 
-  // common spatial anchor
-  center: vec3<f32>,  // world-space center / reference point
-  param0: f32,        // main scalar parameter
+  // center.xyz = center, center_param0.w = param0 (radius, height, etc.)
+  center_param0: vec4<f32>,
 
   // extra shape parameters
   params1: vec4<f32>,
-  params2: vec4<f32>
+  params2: vec4<f32>,
 }
 
 // Sphere
-// kind = SPHERE
-// center = center
-// radius = param0
+// center = center_param0.xyz
+// radius = center_param0.w
 fn sd_sphere(p: vec3<f32>, s: Primitive) -> f32 {
-  return length(p - s.center) - s.param0;
+  return length(p - s.center_param0.xyz) - s.center_param0.w;
 }
 
 // Plane
-// kind = PLANE
-// normal   = params1 (must be normalized)
-// offset h = param0   (equation: dot(p, n) + h = 0)
+// normal   = params1.xyz (must be normalized)
+// offset h = center_param0.w   (equation: dot(p, n) + h = 0)
 fn sd_plane(p: vec3<f32>, pl: Primitive) -> f32 {
   let n = normalize(pl.params1.xyz);
-  return dot(p, n) + pl.param0;
+  let h = pl.center_param0.w;
+  return dot(p, n) + h;
 }
 
 // Box
-// kind = BOX
-// center = center
-// size = params1
+// center = center_param0.xyz
+// size   = params1.xyz (half-size)
 fn sd_box(p: vec3<f32>, b: Primitive) -> f32 {
-  let q = abs(p - b.center) - b.params1.xyz;
+  let c = b.center_param0.xyz;
+  let half_size = b.params1.xyz;
+  let q = abs(p - c) - half_size;
   return length(max(q, vec3<f32>(0.0))) + min(max(q.x, max(q.y, q.z)), 0.0);
 }
 
 // Rounded Box
-// kind = ROUNDED_BOX
-// center = center
-// size = params1
-// radius = param0
+// center = center_param0.xyz
+// size   = params1.xyz (half-size)
+// radius = center_param0.w
 fn sd_rounded_box(p: vec3<f32>, rb: Primitive) -> f32 {
-  let q = abs(p - rb.center) - rb.params1.xyz;
-  return length(max(q, vec3<f32>(0.0))) + min(max(q.x, max(q.y, q.z)), 0.0) - rb.param0;
+  let c = rb.center_param0.xyz;
+  let half_size = rb.params1.xyz;
+  let r = rb.center_param0.w;
+  let q = abs(p - c) - half_size;
+  return length(max(q, vec3<f32>(0.0))) + min(max(q.x, max(q.y, q.z)), 0.0) - r;
 }
 
 // Cylinder
-// kind = CYLINDER
-// center = center
+// center = center_param0.xyz
 // radius = params1.x
-// height = param0
+// height = center_param0.w
 fn sd_cylinder(p: vec3<f32>, cy: Primitive) -> f32 {
-  let q = abs(vec2<f32>(length(p.xz - cy.center.xz), p.y - cy.center.y)) - vec2<f32>(cy.params1.x, cy.param0 * 0.5);
+  let c = cy.center_param0.xyz;
+  let radius = cy.params1.x;
+  let height = cy.center_param0.w;
+  let q = abs(vec2<f32>(length(p.xz - c.xz), p.y - c.y))
+          - vec2<f32>(radius, height * 0.5);
   return min(max(q.x, q.y), 0.0) + length(max(q, vec2<f32>(0.0)));
 }
 
 // Torus
-// kind = TORUS
-// center = center
-// major_radius = param0
-// minor_radius = params1.x
+// center        = center_param0.xyz
+// major_radius  = center_param0.w
+// minor_radius  = params1.x
 fn sd_torus(p: vec3<f32>, t: Primitive) -> f32 {
-  let q = vec2<f32>(length(p.xz - t.center.xz) - t.param0, p.y - t.center.y);
-  return length(q) - t.params1.x;
+  let c = t.center_param0.xyz;
+  let R = t.center_param0.w;  // major radius
+  let r = t.params1.x;        // minor radius
+  let q = vec2<f32>(length(p.xz - c.xz) - R, p.y - c.y);
+  return length(q) - r;
 }
 
 // Capsule
-// kind = CAPSULE
-// a = params1
-// b = params2
-// radius = param0
+// a      = params1.xyz
+// b      = params2.xyz
+// radius = center_param0.w
 fn sd_capsule(p: vec3<f32>, c: Primitive) -> f32 {
-  let pa = p - c.params1.xyz;
-  let ba = c.params2.xyz - c.params1.xyz;
+  let a = c.params1.xyz;
+  let b = c.params2.xyz;
+  let radius = c.center_param0.w;
+
+  let pa = p - a;
+  let ba = b - a;
   let h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0);
-  return length(pa - ba * h) - c.param0;
+  return length(pa - ba * h) - radius;
 }
 
 const SPHERE      : u32 = 0u;
@@ -162,7 +168,7 @@ const TORUS       : u32 = 5u;
 const CAPSULE     : u32 = 6u;
 
 fn sd_primitive(p: vec3<f32>, prim: Primitive) -> f32 {
-  switch (prim.kind) {
+  switch (prim.header.x) {
     case SPHERE: { // SPHERE
       return sd_sphere(p, prim);
     }
@@ -191,88 +197,26 @@ fn sd_primitive(p: vec3<f32>, prim: Primitive) -> f32 {
 }
 
 // Scene
-const SCENE_PRIM_COUNT: u32 = 5u;
+const MAX_PRIMS: u32 = 16u;
 
 struct Scene {
-  primitives: array<Primitive, SCENE_PRIM_COUNT>
-}
+  count: u32,
+  _pad: vec3<u32>,
+  primitives: array<Primitive, MAX_PRIMS>,
+};
 
-fn create_scene() -> Scene {
-  var scene: Scene;
-
-  // Ground Plane (y = -1)
-  scene.primitives[0] = Primitive(
-    PLANE,
-    u32(MAT_GROUND),
-    0u,
-    0u,
-    vec3<f32>(0.0, 0.0, 0.0),
-    1.0,
-    vec4<f32>(0.0, 1.0, 0.0, 0.0),
-    vec4<f32>(0.0)
-  );
-
-  // Glass sphere
-  scene.primitives[1] = Primitive(
-    SPHERE,
-    u32(MAT_GLASS),
-    0u,
-    0u,
-    vec3<f32>(0.0, 0.0, 0.0),
-    0.8,
-    vec4<f32>(0.0),
-    vec4<f32>(0.0)
-  );
-
-  // Metal sphere
-  scene.primitives[2] = Primitive(
-    SPHERE,
-    u32(MAT_METAL),
-    0u,
-    0u,
-    vec3<f32>(2.0, -0.2, 0.0),
-    0.8,
-    vec4<f32>(0.0),
-    vec4<f32>(0.0)
-  );
-
-  // Water rounded box
-  scene.primitives[3] = Primitive(
-    ROUNDED_BOX,
-    u32(MAT_WATER),
-    0u,
-    0u,
-    vec3<f32>(-2.0, -0.5, 0.0),
-    0.1, // corner radius
-    vec4<f32>(0.7, 0.5, 0.7, 0.0), // size
-    vec4<f32>(0.0)
-  );
-
-  // Diffuse sphere
-  scene.primitives[4] = Primitive(
-    SPHERE,
-    u32(MAT_DIFFUSE),
-    0u,
-    0u,
-    vec3<f32>(0.0, -0.5, 2.0),
-    0.5,
-    vec4<f32>(0.0),
-    vec4<f32>(0.0)
-  );
-
-  return scene;
-}
+@group(0) @binding(1)
+var<uniform> scene: Scene;
 
 // Scene description - returns (distance, material_id)
 fn get_dist(p: vec3<f32>) -> vec2<f32> {
   var res = vec2<f32>(MAX_DIST, -1.0);
-  let scene = create_scene();
 
-  for (var i: u32 = 0u; i < SCENE_PRIM_COUNT; i = i + 1u) {
+  for (var i: u32 = 0u; i < scene.count; i = i + 1u) {
     let prim = scene.primitives[i];
     let dist = sd_primitive(p, prim);
     if dist < res.x {
-      res = vec2<f32>(dist, f32(prim.material_id));
+      res = vec2<f32>(dist, f32(prim.header.y));
     }
   }
 
