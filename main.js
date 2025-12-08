@@ -74,7 +74,7 @@ const editorContainer = $("editor-container");
 //#region Scene / primitive data model -------------------------------------------
 
 const MAX_PRIMS = 16;             // must match WGSL MAX_PRIMS
-const PRIMITIVE_SIZE = 64;        // bytes (Primitive = 4 * vec4 = 64)
+const PRIMITIVE_SIZE = 48;        // bytes (Primitive = 3 * vec4 = 48)
 const SCENE_HEADER_SIZE = 32;     // bytes (count + padding + vec3<u32>)
 const SCENE_SIZE = SCENE_HEADER_SIZE + MAX_PRIMS * PRIMITIVE_SIZE;
 
@@ -124,7 +124,6 @@ let scenePrimitives = [
     center: [0.0, 0.0, 0.0],         // unused for plane, kept for consistency
     param0: 1.0,                     // offset h
     params1: [0.0, 1.0, 0.0, 0.0],   // normal
-    params2: [0.0, 0.0, 0.0, 0.0],
   },
   // Metal sphere
   {
@@ -133,7 +132,6 @@ let scenePrimitives = [
     center: [0.0, 0.0, 0.0],
     param0: 0.8,
     params1: [0.0, 0.0, 0.0, 0.0],
-    params2: [0.0, 0.0, 0.0, 0.0],
   },
 ];
 
@@ -144,16 +142,21 @@ function buildSceneData(primitives) {
 
   const count = Math.min(primitives.length, MAX_PRIMS);
 
-  // Scene header (32 bytes, 8 * 4 bytes)
+  // Scene header (32 bytes, padded so primitives start at offset 32)
   u32[0] = count; // count
-  u32[1] = 0;     // _pad.x
-  u32[2] = 0;     // _pad.y
-  u32[3] = 0;     // _pad.z
-  // u32[4..7] unused, kept zero
+  // u32[1..3] are padding to reach 16-byte alignment
+  u32[1] = 0;
+  u32[2] = 0;
+  u32[3] = 0;
+  // _pad vec3<u32> lives at offset 16 (indices 4..6), keep zeroed
+  u32[4] = 0;
+  u32[5] = 0;
+  u32[6] = 0;
+  u32[7] = 0; // padding to 32 bytes
 
   function writePrimitive(index, spec) {
     const headerWords = SCENE_HEADER_SIZE / 4;      // 32 / 4 = 8
-    const wordsPerPrimitive = PRIMITIVE_SIZE / 4;   // 64 / 4 = 16
+    const wordsPerPrimitive = PRIMITIVE_SIZE / 4;   // 48 / 4 = 12
 
     const baseIndex = headerWords + index * wordsPerPrimitive;
 
@@ -174,12 +177,6 @@ function buildSceneData(primitives) {
     f32[baseIndex + 9]  = spec.params1[1];
     f32[baseIndex + 10] = spec.params1[2];
     f32[baseIndex + 11] = spec.params1[3];
-
-    // params2
-    f32[baseIndex + 12] = spec.params2[0];
-    f32[baseIndex + 13] = spec.params2[1];
-    f32[baseIndex + 14] = spec.params2[2];
-    f32[baseIndex + 15] = spec.params2[3];
   }
 
   for (let i = 0; i < count; i++) {
@@ -449,22 +446,22 @@ function buildPrimitiveControls(body, prim, index) {
       createVec3Controls(
         body,
         "Point A",
-        prim.params1.slice(0, 3),
+        prim.center.slice(0, 3),
         [-5, 5],
         0.1,
         (v) => {
-          scenePrimitives[index].params1 = [...v, prim.params1[3]];
+          scenePrimitives[index].center = [...v, prim.center[3]];
           updateSceneGPU();
         },
       );
       createVec3Controls(
         body,
         "Point B",
-        prim.params2.slice(0, 3),
+        prim.params1.slice(0, 3),
         [-5, 5],
         0.1,
         (v) => {
-          scenePrimitives[index].params2 = [...v, prim.params2[3]];
+          scenePrimitives[index].params1 = [...v, prim.params1[3]];
           updateSceneGPU();
         },
       );

@@ -72,7 +72,6 @@ struct Primitive {
 
   // extra shape parameters
   params1: vec4<f32>,
-  //params2: vec4<f32>,
 }
 
 // Sphere
@@ -140,7 +139,7 @@ fn sd_torus(p: vec3<f32>, t: Primitive) -> f32 {
 
 // Capsule
 // a      = center_param0.xyz
-// b      = params2.xyz
+// b      = params1.xyz
 // radius = center_param0.w
 fn sd_capsule(p: vec3<f32>, c: Primitive) -> f32 {
   let a = c.center_param0.xyz;

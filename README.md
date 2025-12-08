@@ -6,7 +6,7 @@ This project extends the WebGPU Shadertoy starter by introducing GPU-driven scen
 1. Scene Data Structures (WGSL)
 
 We defined two new GPU-friendly structs:  
-Primitive: packed into 64 bytes using four vec4 fields (header, center_param0, params1, params2), ensuring proper alignment for uniform buffers.  
+Primitive: packed into 48 bytes using three vec4 fields (header, center_param0, params1), ensuring proper alignment for uniform buffers.  
 Scene: contains a primitive count, padding, and a fixed-size array of primitives (array<Primitive, MAX_PRIMS>).  
 A new uniform binding (@binding(1)) exposes the scene to the shader.
 
@@ -15,7 +15,7 @@ A new uniform binding (@binding(1)) exposes the scene to the shader.
 A matching ArrayBuffer layout is constructed manually in JS using Uint32Array/Float32Array.  
 We allocate a sceneBuffer of size:
 
-16 bytes (header) + MAX_PRIMS × 64 bytes
+32 bytes (header, padded to vec3 alignment) + MAX_PRIMS × 48 bytes
 
 This buffer is uploaded to the GPU and bound alongside the existing uniforms.
 
