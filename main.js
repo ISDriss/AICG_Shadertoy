@@ -583,19 +583,7 @@ function addDefaultSphere() {
   buildSceneEditorUI();
 }
 
-// --- Canvas / input events --------------------------------------------------
-
-canvas.addEventListener("mousemove", (e) => {
-  const rect = canvas.getBoundingClientRect();
-  const dpr = devicePixelRatio || 1;
-  [mouseX, mouseY] = [
-    (e.clientX - rect.left) * dpr,
-    (e.clientY - rect.top) * dpr,
-  ];
-});
-canvas.addEventListener("mousedown", () => (mouseDown = true));
-canvas.addEventListener("mouseup", () => (mouseDown = false));
-canvas.addEventListener("mouseleave", () => (mouseDown = false));
+// --- Canvas --------------------------------------------------
 
 // Toggle shader code panel
 $("code-toggle").onclick = () => {
@@ -632,13 +620,11 @@ fn vs_main(@builtin(vertex_index) vertexIndex: u32) -> @builtin(position) vec4<f
 
 const uniformsStruct = `struct Uniforms {
   resolution: vec2<f32>,
-  time: f32,
-  deltaTime: f32,
-  mouse: vec4<f32>,
   frame: u32,
   _padding: u32,
-  _padding2: u32,
-  _padding3: u32,
+  camPos: vec4<f32>,
+  camDir: vec4<f32>,
+  camUp: vec4<f32>,
 }
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;`;
 
@@ -738,6 +724,115 @@ async function compileShader(fragmentCode) {
   }
 }
 
+// --- Camera setup -----------------------------------------------------------
+
+let camPos = { x: 0, y: 2, z: 5 };
+let camDir = { x: 0, y: -0.3, z: -1 };
+let camUp = { x: 0, y: 1, z: 0 };
+
+let camTarget = { x: 0, y: 0, z: 0 };
+let camDist   = 4.0;
+let camYaw    = 0.0;
+let camPitch  = 0.5; // radians
+
+function updateCamera() {
+  const cp = computeCamPosFromOrbit();
+  camPos = cp; // {x,y,z}
+  const dir = {
+    x: camTarget.x - camPos.x,
+    y: camTarget.y - camPos.y,
+    z: camTarget.z - camPos.z,
+  };
+  const len = Math.hypot(dir.x, dir.y, dir.z);
+  camDir = { x: dir.x / len, y: dir.y / len, z: dir.z / len };
+
+  camUp = { x: 0, y: 1, z: 0 };
+}
+
+function computeCamPosFromOrbit() {
+  const cp = {};
+  const cosPitch = Math.cos(camPitch);
+  cp.x = camTarget.x + camDist * Math.sin(camYaw) * cosPitch;
+  cp.y = camTarget.y + camDist * Math.sin(camPitch);
+  cp.z = camTarget.z + camDist * Math.cos(camYaw) * cosPitch;
+  return cp;
+}
+
+const PITCH_MIN = -Math.PI / 2 + 0.01;
+const PITCH_MAX =  Math.PI / 2 - 0.01;
+
+let isDragging = false;
+let dragMode = null; // "orbit" | "pan" | "zoom"
+let lastX = 0;
+let lastY = 0;
+
+canvas.addEventListener("mousedown", (e) => {
+  if (e.button === 1 || (e.button === 0 && e.altKey)) { // middle, or alt+left fallback
+    isDragging = true;
+    lastX = e.clientX;
+    lastY = e.clientY;
+
+    if (e.shiftKey) {
+      dragMode = "pan";
+    } else if (e.ctrlKey) {
+      dragMode = "zoom";
+    } else {
+      dragMode = "orbit"; // plain MMB drag
+    }
+
+    e.preventDefault();
+  }
+});
+
+window.addEventListener("mouseup", () => {
+  isDragging = false;
+  dragMode = null;
+});
+
+window.addEventListener("mousemove", (e) => {
+  if (!isDragging || !dragMode) return;
+
+  const dx = e.clientX - lastX;
+  const dy = e.clientY - lastY;
+  lastX = e.clientX;
+  lastY = e.clientY;
+
+  const ROT_SPEED = 0.005;
+  const PAN_SPEED = 0.0015 * camDist;
+  const ZOOM_SPEED = 0.01 * camDist;
+
+  if (dragMode === "orbit") {
+    camYaw   -= dx * ROT_SPEED;
+    camPitch += dy * ROT_SPEED;
+    camPitch = Math.min(Math.max(camPitch, PITCH_MIN), PITCH_MAX);
+  } else if (dragMode === "pan") {
+    // move target in camera's right/up plane
+    const right = {
+      x: camDir.z,
+      y: 0,
+      z: -camDir.x,
+    };
+    const up = { x: 0, y: 1, z: 0 };
+
+    camTarget.x += (dx * PAN_SPEED) * right.x + (dy * PAN_SPEED) * up.x;
+    camTarget.y += (dx * PAN_SPEED) * right.y + (dy * PAN_SPEED) * up.y;
+    camTarget.z += (dx * PAN_SPEED) * right.z + (dy * PAN_SPEED) * up.z;
+  } else if (dragMode === "zoom") {
+    camDist *= 1.0 + (dy * ZOOM_SPEED * 0.1); // drag up/down to zoom
+    camDist = Math.max(0.5, camDist);
+  }
+
+  updateCamera();
+});
+
+canvas.addEventListener("wheel", (e) => {
+  const ZOOM_WHEEL_SPEED = 0.001;
+  camDist *= 1.0 + e.deltaY * ZOOM_WHEEL_SPEED;
+  camDist = Math.max(0.5, camDist);
+  updateCamera();
+  e.preventDefault();
+}, { passive: false });
+
 // --- Render loop ------------------------------------------------------------
 
 function render() {
@@ -747,15 +842,15 @@ function render() {
   }
 
   const currentTime = performance.now();
-  const deltaTime = (currentTime - lastFrameTime) / 1000;
-  const elapsedTime = (currentTime - startTime) / 1000;
+
+  updateCamera();
 
   const data = [
     canvas.width, canvas.height,
-    elapsedTime, deltaTime,
-    mouseX, mouseY,
-    mouseDown ? 1 : 0, 0,
-    frameCount, 0, 0, 0,
+    frameCount, 0,
+    camPos.x, camPos.y, camPos.z, mouseDown ? 1 : 0,
+    camDir.x, camDir.y, camDir.z, 0,
+    camUp.x, camUp.y, camUp.z, 0,
   ];
   device.queue.writeBuffer(uniformBuffer, 0, new Float32Array(data));
 

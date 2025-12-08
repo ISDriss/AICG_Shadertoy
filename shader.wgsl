@@ -3,24 +3,18 @@
 fn fs_main(@builtin(position) fragCoord: vec4<f32>) -> @location(0) vec4<f32> {
   let uv = (fragCoord.xy - uniforms.resolution * 0.5) / min(uniforms.resolution.x, uniforms.resolution.y);
 
-  // Pitch Controll
-  let pitch = clamp((1.0 - uniforms.mouse.y / uniforms.resolution.y), 0.05, 1.5);
-  let yaw = uniforms.time * 0.5;
-
   // Camera Coords
-  let cam_dist = 4.0; // Distance from the target
-  let cam_target = vec3<f32>(0.0, 0.0, 0.0);
-  let cam_pos = vec3<f32>(sin(yaw) * cos(pitch), sin(pitch), cos(yaw) * cos(pitch)) * cam_dist;
+  let cam_pos = uniforms.camPos.xyz;
+  let cam_dir = uniforms.camDir.xyz;
+  let cam_up  = uniforms.camUp.xyz;
 
-  // Camera Matrix
-  let cam_forward = normalize(cam_target - cam_pos);
-  let cam_right = normalize(cross(cam_forward, vec3<f32>(0.0, 1.0, 0.0)));
-  let cam_up = cross(cam_right, cam_forward); // Re-orthogonalized up
+  // basis
+  let cam_forward = normalize(cam_dir);
+  let cam_right   = normalize(cross(cam_forward, cam_up));
+  let cam_up_orth = cross(cam_right, cam_forward);
 
-  // Ray Direction
-  // 1.5 is the "focal length" or distance to the projection plane
   let focal_length = 1.5;
-  let rd = normalize(cam_right * uv.x - cam_up * uv.y + cam_forward * focal_length);
+  let rd = normalize(cam_right * uv.x - cam_up_orth * uv.y + cam_forward * focal_length);
 
   // Render with reflections and refractions
   let color = render(cam_pos, rd, fragCoord.xy);
