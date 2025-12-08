@@ -65,6 +65,7 @@
         id="editor-container"
         class="flex flex-col bg-gray-800 portrait:w-full portrait:h-1/2 landscape:w-1/2 landscape:h-full"
       >
+        <!-- Top toolbar -->
         <div
           class="p-2.5 font-bold flex flex-col gap-2"
           style="
@@ -87,52 +88,85 @@
                 <path d="M2 17L12 22L22 17" />
                 <path d="M2 12L12 17L22 12" />
               </svg>
-              <span>[WGSL] Fragment Shader</span>
+              <span>WebGPU Raymarch Scene Editor</span>
             </div>
-          </div>
-          <div
-            class="w-full h-px"
-            style="background-color: #665c54; opacity: 0.5"
-          ></div>
-          <div class="flex items-center justify-between gap-3">
-            <div class="flex flex-wrap items-center gap-3">
-              <span class="text-sm font-normal whitespace-nowrap"
-                ><span style="opacity: 0.5">FPS:</span>
+            <div class="flex items-center gap-4 text-sm font-normal">
+              <span class="whitespace-nowrap">
+                <span style="opacity: 0.5">FPS:</span>
                 <span id="fps">0</span>
                 <span style="opacity: 0.5; margin-left: 8px">Frame:</span>
-                <span id="frame-time">0ms</span></span
+                <span id="frame-time">0ms</span>
+              </span>
+              <span class="whitespace-nowrap">
+                <span style="opacity: 0.5">Compile:</span>
+                <span id="compile-time"></span>
+              </span>
+              <button
+                id="compile-btn"
+                class="px-3 py-1 text-sm rounded bg-green-700 hover:bg-green-600 transition-colors whitespace-nowrap"
+                title="Compile (Ctrl/Cmd+Enter)"
               >
-              <span class="text-sm font-normal whitespace-nowrap"
-                ><span style="opacity: 0.5">Compile:</span>
-                <span id="compile-time"></span
-              ></span>
+                Compile
+              </button>
             </div>
-            <button
-              id="compile-btn"
-              class="px-3 py-1 text-sm rounded bg-green-700 hover:bg-green-600 transition-colors whitespace-nowrap"
-              title="Compile (Ctrl/Cmd+Enter)"
-            >
-              Compile
-            </button>
           </div>
         </div>
+
+        <!-- Main editor area -->
         <div class="flex flex-col flex-1 overflow-hidden">
-          <!-- Top panel: Scene editor -->
+          <!-- Scene editor -->
           <div
             id="scene-editor"
-            class="flex flex-col flex-1 transition-all duration-300"
+            class="flex flex-col flex-1 overflow-hidden"
+            style="background:#1d2021"
           >
+            <!-- Scene editor header -->
+            <div
+              class="flex items-center justify-between px-3 py-2 border-b"
+              style="border-color:#3c3836; color:#ebdbb2"
+            >
+              <div class="flex items-center gap-2">
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
+                  <rect x="3" y="3" width="7" height="7" />
+                  <rect x="14" y="3" width="7" height="7" />
+                  <rect x="14" y="14" width="7" height="7" />
+                  <rect x="3" y="14" width="7" height="7" />
+                </svg>
+                <span>Scene Objects</span>
+              </div>
+              <button
+                id="add-primitive-btn"
+                class="px-2 py-1 text-xs rounded border"
+                style="border-color:#458588; color:#83a598"
+                title="Add a new sphere to the scene"
+              >
+                + Add Sphere
+              </button>
+            </div>
 
+            <!-- Scrollable list of primitives -->
+            <div
+              id="scene-list"
+              class="flex-1 overflow-y-auto overflow-x-hidden p-3 space-y-3"
+            ></div>
           </div>
 
-          <!-- Bottom panel: WGSL code editor -->
+          <!-- Shader code editor -->
           <div
             id="code-panel"
-            class="flex flex-col flex-1 transition-all duration-300 overflow-hidden"
+            class="flex flex-col flex-none transition-all duration-300 overflow-hidden"
+            style="height: 260px"
           >
             <div
               id="code-toggle"
-              class="w-full h-6 cursor-pointer hover:opacity-80 flex items-center px-2"
+              class="w-full h-7 cursor-pointer hover:opacity-80 flex items-center px-2 text-xs"
               style="background: #3c3836; color: #a89984"
             >
               <span id="code-arrow">▼ Shader Code</span>
@@ -147,6 +181,7 @@
           </div>
         </div>
       </div>
+
     </div>
     <script src="main.js"></script>
   </body>

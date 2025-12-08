@@ -6,24 +6,26 @@ fn fs_main(@builtin(position) fragCoord: vec4<f32>) -> @location(0) vec4<f32> {
     return vec4<f32>(uv, 0.5, 1.0);
 }`;
 
+// --- CodeMirror setup ------------------------------------------------------
+
 CodeMirror.defineSimpleMode("wgsl", {
-        start: [
-          { regex: /\b(fn|let|var|const|if|else|for|while|loop|return|break|continue|discard|switch|case|default|struct|type|alias)\b/, token: "keyword" },
-          { regex: /\b(bool|i32|u32|f32|f16|vec2|vec3|vec4|mat2x2|mat3x3|mat4x4|array|sampler|texture_2d|texture_3d)\b/, token: "type" },
-          { regex: /\b(vec2|vec3|vec4|mat2x2|mat3x3|mat4x4|array)<[^>]+>/, token: "type" },
-          { regex: /\b(abs|acos|all|any|asin|atan|atan2|ceil|clamp|cos|cosh|cross|degrees|determinant|distance|dot|exp|exp2|faceforward|floor|fma|fract|frexp|inversesqrt|ldexp|length|log|log2|max|min|mix|modf|normalize|pow|radians|reflect|refract|round|sign|sin|sinh|smoothstep|sqrt|step|tan|tanh|transpose|trunc)\b/, token: "builtin" },
-          { regex: /@(vertex|fragment|compute|builtin|location|binding|group|stage|workgroup_size|interpolate|invariant)/, token: "attribute" },
-          { regex: /\b\d+\.?\d*[fu]?\b|0x[0-9a-fA-F]+[ul]?/, token: "number" },
-          { regex: /\/\/.*/, token: "comment" },
-          { regex: /\/\*/, token: "comment", next: "comment" },
-          { regex: /[+\-*/%=<>!&|^~?:]/, token: "operator" },
-          { regex: /[{}()\[\];,\.]/, token: "punctuation" },
-        ],
-        comment: [
-          { regex: /.*?\*\//, token: "comment", next: "start" },
-          { regex: /.*/, token: "comment" },
-        ],
-      }); // prettier-ignore
+  start: [
+    { regex: /\b(fn|let|var|const|if|else|for|while|loop|return|break|continue|discard|switch|case|default|struct|type|alias)\b/, token: "keyword" },
+    { regex: /\b(bool|i32|u32|f32|f16|vec2|vec3|vec4|mat2x2|mat3x3|mat4x4|array|sampler|texture_2d|texture_3d)\b/, token: "type" },
+    { regex: /\b(vec2|vec3|vec4|mat2x2|mat3x3|mat4x4|array)<[^>]+>/, token: "type" },
+    { regex: /\b(abs|acos|all|any|asin|atan|atan2|ceil|clamp|cos|cosh|cross|degrees|determinant|distance|dot|exp|exp2|faceforward|floor|fma|fract|frexp|inversesqrt|ldexp|length|log|log2|max|min|mix|modf|normalize|pow|radians|reflect|refract|round|sign|sin|sinh|smoothstep|sqrt|step|tan|tanh|transpose|trunc)\b/, token: "builtin" },
+    { regex: /@(vertex|fragment|compute|builtin|location|binding|group|stage|workgroup_size|interpolate|invariant)/, token: "attribute" },
+    { regex: /\b\d+\.?\d*[fu]?\b|0x[0-9a-fA-F]+[ul]?/, token: "number" },
+    { regex: /\/\/.*/, token: "comment" },
+    { regex: /\/\*/, token: "comment", next: "comment" },
+    { regex: /[+\-*/%=<>!&|^~?:]/, token: "operator" },
+    { regex: /[{}()\[\];,\.]/, token: "punctuation" },
+  ],
+  comment: [
+    { regex: /.*?\*\//, token: "comment", next: "start" },
+    { regex: /.*/, token: "comment" },
+  ],
+}); // prettier-ignore
 
 const editor = CodeMirror.fromTextArea(document.getElementById("code-editor"), {
   mode: "wgsl",
@@ -38,11 +40,15 @@ const editor = CodeMirror.fromTextArea(document.getElementById("code-editor"), {
 });
 editor.setValue(fallbackShader);
 
+// --- Globals ----------------------------------------------------------------
+
 let device;
 let context;
 let pipeline;
 let uniformBuffer;
 let bindGroup;
+let sceneBuffer;
+
 let startTime = performance.now();
 let lastFrameTime = startTime;
 let frameCount = 0;
@@ -50,7 +56,7 @@ let lastFpsUpdate = startTime;
 let mouseX = 0;
 let mouseY = 0;
 let mouseDown = false;
-let CodePanelOpen = true;
+let codePanelOpen = true;
 let isFullscreen = false;
 
 const $ = (id) => document.getElementById(id);
@@ -63,92 +69,14 @@ const fullscreenExitIcon = $("fullscreen-exit-icon");
 const canvasContainer = $("canvas-container");
 const editorContainer = $("editor-container");
 
-function setText(id, text) {
-  const el = $(id);
-  if (el) el.textContent = text;
-}
-
-const uniforms = {
-  resolution: {
-    label: "resolution",
-    initial: "0 × 0",
-    update: (w, h) => `${w} × ${h}`,
-  },
-  time: {
-    label: "time",
-    initial: "0.00s",
-    update: (t) => `${t.toFixed(2)}s`,
-  },
-  deltaTime: {
-    label: "deltaTime",
-    initial: "0.00ms",
-    update: (dt) => `${(dt * 1000).toFixed(2)}ms`,
-  },
-  mousexy: {
-    label: "mouse.xy",
-    initial: "0, 0",
-    update: (x, y) => `${Math.round(x)}, ${Math.round(y)}`,
-  },
-  mousez: {
-    label: "mouse.z",
-    initial:
-      '<span class="inline-block w-2 h-2 rounded-full" id="mouse-ind" style="background:#928374"></span>',
-    update: (down) => {
-      $("mouse-ind").style.background = down ? "#b8bb26" : "#928374";
-      return null;
-    },
-  },
-  frame: {
-    label: "frame",
-    initial: "0",
-    update: (f) => f.toString(),
-  },
-};
-
-canvas.addEventListener("mousemove", (e) => {
-  const rect = canvas.getBoundingClientRect();
-  const dpr = devicePixelRatio || 1;
-  [mouseX, mouseY] = [
-    (e.clientX - rect.left) * dpr,
-    (e.clientY - rect.top) * dpr,
-  ];
-});
-canvas.addEventListener("mousedown", () => (mouseDown = true));
-canvas.addEventListener("mouseup", () => (mouseDown = false));
-canvas.addEventListener("mouseleave", () => (mouseDown = false));
-
-// Toggle the WGSL code editor panel
-$("code-toggle").onclick = () => {
-  CodePanelOpen = !CodePanelOpen;
-  $("code-content").style.display = CodePanelOpen? "block" : "none";
-  $("code-panel").style.flex = CodePanelOpen? "1 1 30%": "0 0 24px";
-  $("code-arrow").textContent = CodePanelOpen? "▼ Shader Code": "▶ Shader Code";
-  // CodeMirror needs a refresh when its container size changes
-  setTimeout(() => editor.refresh(), 0);
-};
-
-
-const vertexShader = `@vertex
-fn vs_main(@builtin(vertex_index) vertexIndex: u32) -> @builtin(position) vec4<f32> {
-  var pos = array<vec2<f32>, 3>(vec2<f32>(-1.0, -1.0), vec2<f32>(3.0, -1.0), vec2<f32>(-1.0, 3.0));
-  return vec4<f32>(pos[vertexIndex], 0.0, 1.0);
-}`;
-
-const uniformsStruct = `struct Uniforms {
-  resolution: vec2<f32>, time: f32, deltaTime: f32, mouse: vec4<f32>, frame: u32,
-  _padding: u32, _padding2: u32, _padding3: u32,
-}
-@group(0) @binding(0) var<uniform> uniforms: Uniforms;`;
-
-// Scene buffer
-let sceneBuffer;
+// --- Scene / primitive data model ------------------------------------------
 
 const MAX_PRIMS = 16;             // must match WGSL MAX_PRIMS
 const PRIMITIVE_SIZE = 64;        // bytes (Primitive = 4 * vec4 = 64)
 const SCENE_HEADER_SIZE = 32;     // bytes (count + padding + vec3<u32>)
 const SCENE_SIZE = SCENE_HEADER_SIZE + MAX_PRIMS * PRIMITIVE_SIZE;
 
-// Match WGSL constants
+// WGSL kind IDs
 const SPHERE      = 0;
 const PLANE       = 1;
 const BOX         = 2;
@@ -157,56 +85,48 @@ const CYLINDER    = 4;
 const TORUS       = 5;
 const CAPSULE     = 6;
 
+// Material IDs
 const MAT_GROUND  = 0;
 const MAT_METAL   = 1;
 const MAT_GLASS   = 2;
 const MAT_WATER   = 3;
 const MAT_DIFFUSE = 4;
 
-// This array is what your future UI will modify
+const PRIM_TYPE_LABELS = {
+  [PLANE]: "Plane",
+  [SPHERE]: "Sphere",
+  [BOX]: "Box",
+  [ROUNDED_BOX]: "Rounded Box",
+  [CYLINDER]: "Cylinder",
+  [TORUS]: "Torus",
+  [CAPSULE]: "Capsule",
+};
+
+const MATERIAL_LABELS = {
+  [MAT_GROUND]:  "Ground",
+  [MAT_METAL]:   "Metal",
+  [MAT_GLASS]:   "Glass",
+  [MAT_WATER]:   "Water",
+  [MAT_DIFFUSE]: "Diffuse",
+};
+
+// This array is what the UI edits + what we upload to the GPU
 let scenePrimitives = [
   // Ground plane
   {
     kind: PLANE,
     materialId: MAT_GROUND,
-    center: [0.0, 0.0, 0.0],         // unused for plane
+    center: [0.0, 0.0, 0.0],         // unused for plane, kept for consistency
     param0: 1.0,                     // offset h
     params1: [0.0, 1.0, 0.0, 0.0],   // normal
-    params2: [0.0, 0.0, 0.0, 0.0],
-  },
-  // Glass sphere
-  {
-    kind: SPHERE,
-    materialId: MAT_GLASS,
-    center: [0.0, 0.0, 0.0],
-    param0: 0.8,
-    params1: [0.0, 0.0, 0.0, 0.0],
     params2: [0.0, 0.0, 0.0, 0.0],
   },
   // Metal sphere
   {
     kind: SPHERE,
     materialId: MAT_METAL,
-    center: [2.0, -0.2, 0.0],
+    center: [0.0, 0.0, 0.0],
     param0: 0.8,
-    params1: [0.0, 0.0, 0.0, 0.0],
-    params2: [0.0, 0.0, 0.0, 0.0],
-  },
-  // Water rounded box
-  {
-    kind: ROUNDED_BOX,
-    materialId: MAT_WATER,
-    center: [-2.0, -0.5, 0.0],
-    param0: 0.1,                           // corner radius
-    params1: [0.7, 0.5, 0.7, 0.0],         // size
-    params2: [0.0, 0.0, 0.0, 0.0],
-  },
-  // Diffuse sphere
-  {
-    kind: SPHERE,
-    materialId: MAT_DIFFUSE,
-    center: [0.0, -0.5, 2.0],
-    param0: 0.5,
     params1: [0.0, 0.0, 0.0, 0.0],
     params2: [0.0, 0.0, 0.0, 0.0],
   },
@@ -219,13 +139,12 @@ function buildSceneData(primitives) {
 
   const count = Math.min(primitives.length, MAX_PRIMS);
 
-  // Scene header = 32 bytes = 8 * 4 bytes
-  // Each Primitive = 64 bytes = 16 * 4 bytes
-
+  // Scene header (32 bytes, 8 * 4 bytes)
   u32[0] = count; // count
   u32[1] = 0;     // _pad.x
   u32[2] = 0;     // _pad.y
   u32[3] = 0;     // _pad.z
+  // u32[4..7] unused, kept zero
 
   function writePrimitive(index, spec) {
     const headerWords = SCENE_HEADER_SIZE / 4;      // 32 / 4 = 8
@@ -262,15 +181,479 @@ function buildSceneData(primitives) {
     writePrimitive(i, primitives[i]);
   }
 
-  // Unused slots (if any) can stay zeroed
-
   return buffer;
 }
 
+function updateSceneGPU() {
+  if (!device || !sceneBuffer) return;
+  const sceneData = buildSceneData(scenePrimitives);
+  device.queue.writeBuffer(sceneBuffer, 0, new Uint8Array(sceneData));
+}
+
+// --- Scene editor UI -------------------------------------------------------
+
+function createLabeledNumber(parent, label, value, min, max, step, onChange) {
+  const row = document.createElement("div");
+  row.className = "flex items-center justify-between gap-2 mb-1";
+
+  const labelEl = document.createElement("span");
+  labelEl.textContent = label;
+  labelEl.className = "text-xs";
+  row.appendChild(labelEl);
+
+  const input = document.createElement("input");
+  input.type = "number";
+  input.value = value;
+  input.min = min;
+  input.max = max;
+  input.step = step;
+  input.className = "w-20 bg-gray-900 border border-gray-700 text-xs px-1 py-0.5 rounded";
+  input.oninput = () => {
+    const v = parseFloat(input.value);
+    if (!Number.isNaN(v)) onChange(v);
+  };
+  row.appendChild(input);
+
+  parent.appendChild(row);
+}
+
+function createVec3Controls(parent, label, vec, range, step, onChange) {
+  const container = document.createElement("div");
+  container.className = "mb-2";
+
+  const title = document.createElement("div");
+  title.textContent = label;
+  title.className = "text-xs mb-1";
+  container.appendChild(title);
+
+  const row = document.createElement("div");
+  row.className = "flex gap-2";
+
+  ["X", "Y", "Z"].forEach((axis, idx) => {
+    const wrap = document.createElement("div");
+    wrap.className = "flex flex-col flex-1";
+
+    const lbl = document.createElement("span");
+    lbl.textContent = axis;
+    lbl.className = "text-[10px] mb-0.5 opacity-70";
+    wrap.appendChild(lbl);
+
+    const input = document.createElement("input");
+    input.type = "number";
+    input.value = vec[idx];
+    input.step = step;
+    input.min = range[0];
+    input.max = range[1];
+    input.className = "w-full bg-gray-900 border border-gray-700 text-xs px-1 py-0.5 rounded";
+    input.oninput = () => {
+      const copy = [...vec];
+      const v = parseFloat(input.value);
+      if (!Number.isNaN(v)) {
+        copy[idx] = v;
+        onChange(copy);
+      }
+    };
+    wrap.appendChild(input);
+
+    row.appendChild(wrap);
+  });
+
+  container.appendChild(row);
+  parent.appendChild(container);
+}
+
+function createMaterialSelect(parent, current, onChange) {
+  const row = document.createElement("div");
+  row.className = "flex items-center justify-between gap-2 mb-1";
+
+  const labelEl = document.createElement("span");
+  labelEl.textContent = "Material";
+  labelEl.className = "text-xs";
+  row.appendChild(labelEl);
+
+  const select = document.createElement("select");
+  select.className = "flex-1 bg-gray-900 border border-gray-700 text-xs px-1 py-0.5 rounded";
+  Object.entries(MATERIAL_LABELS).forEach(([id, label]) => {
+    const opt = document.createElement("option");
+    opt.value = id;
+    opt.textContent = label;
+    if (parseInt(id, 10) === current) opt.selected = true;
+    select.appendChild(opt);
+  });
+  select.onchange = () => onChange(parseInt(select.value, 10));
+
+  row.appendChild(select);
+  parent.appendChild(row);
+}
+
+function buildPrimitiveControls(body, prim, index) {
+  // Position (center)
+  createVec3Controls(
+    body,
+    "Position",
+    prim.center,
+    [-5, 5],
+    0.1,
+    (v) => {
+      scenePrimitives[index].center = v;
+      updateSceneGPU();
+    },
+  );
+
+  // Shape-specific controls
+  switch (prim.kind) {
+    case SPHERE: {
+      createLabeledNumber(
+        body,
+        "Radius",
+        prim.param0,
+        0.05,
+        5.0,
+        0.05,
+        (v) => {
+          scenePrimitives[index].param0 = v;
+          updateSceneGPU();
+        },
+      );
+      break;
+    }
+    case PLANE: {
+      createVec3Controls(
+        body,
+        "Normal",
+        prim.params1.slice(0, 3),
+        [-1, 1],
+        0.1,
+        (v) => {
+          scenePrimitives[index].params1 = [...v, prim.params1[3]];
+          updateSceneGPU();
+        },
+      );
+      createLabeledNumber(
+        body,
+        "Offset",
+        prim.param0,
+        -5.0,
+        5.0,
+        0.1,
+        (v) => {
+          scenePrimitives[index].param0 = v;
+          updateSceneGPU();
+        },
+      );
+      break;
+    }
+    case BOX: {
+      createVec3Controls(
+        body,
+        "Half-size",
+        prim.params1.slice(0, 3),
+        [0.05, 5],
+        0.05,
+        (v) => {
+          scenePrimitives[index].params1 = [...v, prim.params1[3]];
+          updateSceneGPU();
+        },
+      );
+      break;
+    }
+    case ROUNDED_BOX: {
+      createVec3Controls(
+        body,
+        "Half-size",
+        prim.params1.slice(0, 3),
+        [0.05, 5],
+        0.05,
+        (v) => {
+          scenePrimitives[index].params1 = [...v, prim.params1[3]];
+          updateSceneGPU();
+        },
+      );
+      createLabeledNumber(
+        body,
+        "Corner radius",
+        prim.param0,
+        0.0,
+        2.0,
+        0.02,
+        (v) => {
+          scenePrimitives[index].param0 = v;
+          updateSceneGPU();
+        },
+      );
+      break;
+    }
+    case CYLINDER: {
+      createLabeledNumber(
+        body,
+        "Radius",
+        prim.params1[0],
+        0.05,
+        5.0,
+        0.05,
+        (v) => {
+          scenePrimitives[index].params1[0] = v;
+          updateSceneGPU();
+        },
+      );
+      createLabeledNumber(
+        body,
+        "Height",
+        prim.param0,
+        0.05,
+        10.0,
+        0.05,
+        (v) => {
+          scenePrimitives[index].param0 = v;
+          updateSceneGPU();
+        },
+      );
+      break;
+    }
+    case TORUS: {
+      createLabeledNumber(
+        body,
+        "Major radius",
+        prim.param0,
+        0.1,
+        5.0,
+        0.05,
+        (v) => {
+          scenePrimitives[index].param0 = v;
+          updateSceneGPU();
+        },
+      );
+      createLabeledNumber(
+        body,
+        "Minor radius",
+        prim.params1[0],
+        0.05,
+        2.0,
+        0.02,
+        (v) => {
+          scenePrimitives[index].params1[0] = v;
+          updateSceneGPU();
+        },
+      );
+      break;
+    }
+    case CAPSULE: {
+      createVec3Controls(
+        body,
+        "Point A",
+        prim.params1.slice(0, 3),
+        [-5, 5],
+        0.1,
+        (v) => {
+          scenePrimitives[index].params1 = [...v, prim.params1[3]];
+          updateSceneGPU();
+        },
+      );
+      createVec3Controls(
+        body,
+        "Point B",
+        prim.params2.slice(0, 3),
+        [-5, 5],
+        0.1,
+        (v) => {
+          scenePrimitives[index].params2 = [...v, prim.params2[3]];
+          updateSceneGPU();
+        },
+      );
+      createLabeledNumber(
+        body,
+        "Radius",
+        prim.param0,
+        0.05,
+        2.0,
+        0.02,
+        (v) => {
+          scenePrimitives[index].param0 = v;
+          updateSceneGPU();
+        },
+      );
+      break;
+    }
+    default:
+      // Fallback: just expose param0
+      createLabeledNumber(
+        body,
+        "Param0",
+        prim.param0,
+        -10.0,
+        10.0,
+        0.1,
+        (v) => {
+          scenePrimitives[index].param0 = v;
+          updateSceneGPU();
+        },
+      );
+  }
+
+  // Material select (common)
+  createMaterialSelect(body, prim.materialId, (matId) => {
+    scenePrimitives[index].materialId = matId;
+    updateSceneGPU();
+  });
+}
+
+function buildSceneEditorUI() {
+  const list = $("scene-list");
+  if (!list) return;
+  list.innerHTML = "";
+
+  scenePrimitives.forEach((prim, index) => {
+    const card = document.createElement("div");
+    card.className = "border border-gray-700 rounded-lg bg-gray-900/60 overflow-hidden";
+
+    // Header
+    const header = document.createElement("div");
+    header.className = "flex items-center justify-between px-3 py-1.5 text-xs cursor-pointer select-none";
+    header.style.borderBottom = "1px solid #3c3836";
+
+    const left = document.createElement("div");
+    left.className = "flex flex-col";
+    const title = document.createElement("span");
+    title.textContent = `${PRIM_TYPE_LABELS[prim.kind] ?? "Primitive"} #${index}`;
+    const subtitle = document.createElement("span");
+    subtitle.className = "opacity-60 text-[10px]";
+    subtitle.textContent = MATERIAL_LABELS[prim.materialId] ?? "Unknown material";
+    left.appendChild(title);
+    left.appendChild(subtitle);
+
+    const right = document.createElement("div");
+    right.className = "flex items-center gap-2";
+    const arrow = document.createElement("span");
+    arrow.textContent = "▼";
+    arrow.className = "text-xs";
+    const removeBtn = document.createElement("button");
+    removeBtn.textContent = "×";
+    removeBtn.className = "w-5 h-5 text-xs rounded-full flex items-center justify-center";
+    removeBtn.style.background = "#cc241d";
+    removeBtn.style.color = "#fbf1c7";
+    removeBtn.title = "Remove object";
+
+    right.appendChild(arrow);
+    right.appendChild(removeBtn);
+
+    header.appendChild(left);
+    header.appendChild(right);
+
+    // Body
+    const body = document.createElement("div");
+    body.className = "px-3 py-2 text-xs space-y-2";
+
+    buildPrimitiveControls(body, prim, index);
+
+    // Collapsing
+    let open = true;
+    header.onclick = (e) => {
+      // avoid toggling when clicking the remove button
+      if (e.target === removeBtn) return;
+      open = !open;
+      body.style.display = open ? "block" : "none";
+      arrow.textContent = open ? "▼" : "▶";
+    };
+
+    // Remove primitive
+    removeBtn.onclick = (e) => {
+      e.stopPropagation();
+      scenePrimitives.splice(index, 1);
+      updateSceneGPU();
+      buildSceneEditorUI();
+    };
+
+    card.appendChild(header);
+    card.appendChild(body);
+    list.appendChild(card);
+  });
+}
+
+function addDefaultSphere() {
+  if (scenePrimitives.length >= MAX_PRIMS) return;
+  scenePrimitives.push({
+    kind: SPHERE,
+    materialId: MAT_DIFFUSE,
+    center: [0.0, 0.0, 0.0],
+    param0: 0.6,
+    params1: [0.0, 0.0, 0.0, 0.0],
+    params2: [0.0, 0.0, 0.0, 0.0],
+  });
+  updateSceneGPU();
+  buildSceneEditorUI();
+}
+
+// --- Canvas / input events --------------------------------------------------
+
+canvas.addEventListener("mousemove", (e) => {
+  const rect = canvas.getBoundingClientRect();
+  const dpr = devicePixelRatio || 1;
+  [mouseX, mouseY] = [
+    (e.clientX - rect.left) * dpr,
+    (e.clientY - rect.top) * dpr,
+  ];
+});
+canvas.addEventListener("mousedown", () => (mouseDown = true));
+canvas.addEventListener("mouseup", () => (mouseDown = false));
+canvas.addEventListener("mouseleave", () => (mouseDown = false));
+
+// Toggle shader code panel
+$("code-toggle").onclick = () => {
+  codePanelOpen = !codePanelOpen;
+  const codePanel = $("code-panel");
+  const codeContent = $("code-content");
+  const codeArrow = $("code-arrow");
+
+  if (codePanelOpen) {
+    codePanel.style.height = "260px";
+    codeContent.style.display = "block";
+    codeArrow.textContent = "▼ Shader Code";
+  } else {
+    codePanel.style.height = "24px";
+    codeContent.style.display = "none";
+    codeArrow.textContent = "▶ Shader Code";
+  }
+  setTimeout(() => editor.refresh(), 0);
+};
+
+$("add-primitive-btn").onclick = addDefaultSphere;
+
+// --- WebGPU setup -----------------------------------------------------------
+
+const vertexShader = `@vertex
+fn vs_main(@builtin(vertex_index) vertexIndex: u32) -> @builtin(position) vec4<f32> {
+  var pos = array<vec2<f32>, 3>(
+    vec2<f32>(-1.0, -1.0),
+    vec2<f32>( 3.0, -1.0),
+    vec2<f32>(-1.0,  3.0)
+  );
+  return vec4<f32>(pos[vertexIndex], 0.0, 1.0);
+}`;
+
+const uniformsStruct = `struct Uniforms {
+  resolution: vec2<f32>,
+  time: f32,
+  deltaTime: f32,
+  mouse: vec4<f32>,
+  frame: u32,
+  _padding: u32,
+  _padding2: u32,
+  _padding3: u32,
+}
+@group(0) @binding(0) var<uniform> uniforms: Uniforms;`;
+
 async function initWebGPU() {
-  if (!navigator.gpu) return ((errorMsg.textContent = "WebGPU not supported"), false);
+  if (!navigator.gpu) {
+    errorMsg.textContent = "WebGPU not supported";
+    errorMsg.classList.remove("hidden");
+    return false;
+  }
   const adapter = await navigator.gpu.requestAdapter();
-  if (!adapter) return ((errorMsg.textContent = "No GPU adapter"), false);
+  if (!adapter) {
+    errorMsg.textContent = "No GPU adapter";
+    errorMsg.classList.remove("hidden");
+    return false;
+  }
   device = await adapter.requestDevice();
   context = canvas.getContext("webgpu");
   const format = navigator.gpu.getPreferredCanvasFormat();
@@ -308,8 +691,11 @@ async function compileShader(fragmentCode) {
         return fragmentLine > 0 ? `Line ${fragmentLine}: ${m.message}` : `Line ${m.lineNum}: ${m.message}`;
       })
       .join("\n");
-    if (errors)
-      return ((errorMsg.textContent = "Shader error:\n" + errors), errorMsg.classList.remove("hidden"));
+    if (errors) {
+      errorMsg.textContent = "Shader error:\n" + errors;
+      errorMsg.classList.remove("hidden");
+      return;
+    }
 
     const format = navigator.gpu.getPreferredCanvasFormat();
     const bindGroupLayout = device.createBindGroupLayout({
@@ -345,36 +731,33 @@ async function compileShader(fragmentCode) {
         { binding: 1, resource: { buffer: sceneBuffer } },
       ],
     });
-    $("compile-time").textContent = `${(performance.now() - start).toFixed(2)}ms`; // prettier-ignore
+    $("compile-time").textContent = `${(performance.now() - start).toFixed(2)}ms`;
   } catch (e) {
     errorMsg.textContent = "Compile error: " + e.message;
     errorMsg.classList.remove("hidden");
   }
 }
 
-function render() {
-  // const sceneData = buildSceneData(scenePrimitives);
-  // device.queue.writeBuffer(sceneBuffer, 0, new Uint8Array(sceneData));
+// --- Render loop ------------------------------------------------------------
 
-  if (!pipeline) return;
+function render() {
+  if (!pipeline) {
+    requestAnimationFrame(render);
+    return;
+  }
+
   const currentTime = performance.now();
   const deltaTime = (currentTime - lastFrameTime) / 1000;
   const elapsedTime = (currentTime - startTime) / 1000;
-  const data = [canvas.width, canvas.height, elapsedTime, deltaTime, mouseX, mouseY, mouseDown ? 1 : 0, 0, frameCount, 0, 0, 0]; // prettier-ignore
+
+  const data = [
+    canvas.width, canvas.height,
+    elapsedTime, deltaTime,
+    mouseX, mouseY,
+    mouseDown ? 1 : 0, 0,
+    frameCount, 0, 0, 0,
+  ];
   device.queue.writeBuffer(uniformBuffer, 0, new Float32Array(data));
-
-  const val = uniforms.resolution.update(canvas.width, canvas.height);
-  if (val) setText("u-resolution", val);
-
-  setText("u-time", uniforms.time.update(elapsedTime));
-  setText("u-deltaTime", uniforms.deltaTime.update(deltaTime));
-  setText("u-mousexy", uniforms.mousexy.update(mouseX, mouseY));
-  setText("u-frame", uniforms.frame.update(frameCount));
-
-  const mouseInd = $("mouse-ind");
-  if (mouseInd) {
-    uniforms.mousez.update(mouseDown);
-  }
 
   lastFrameTime = currentTime;
 
@@ -396,14 +779,16 @@ function render() {
   device.queue.submit([encoder.finish()]);
 
   if (++frameCount && currentTime - lastFpsUpdate > 100) {
-    const fps = Math.round(frameCount / ((currentTime - lastFpsUpdate) / 1_000)); // prettier-ignore
+    const fps = Math.round(frameCount / ((currentTime - lastFpsUpdate) / 1_000));
     $("fps").textContent = fps;
-    $("frame-time").textContent = `${((currentTime - lastFpsUpdate) / frameCount).toFixed(1)}ms`; // prettier-ignore
+    $("frame-time").textContent = `${((currentTime - lastFpsUpdate) / frameCount).toFixed(1)}ms`;
     frameCount = 0;
     lastFpsUpdate = currentTime;
   }
   requestAnimationFrame(render);
 }
+
+// --- Misc UI / window handling ---------------------------------------------
 
 function resizeCanvas() {
   const container = $("canvas-container");
@@ -491,6 +876,8 @@ document.addEventListener("keydown", (e) => {
 });
 window.addEventListener("resize", resizeCanvas);
 
+// --- Shader loading + main --------------------------------------------------
+
 async function loadDefaultShader() {
   try {
     const response = await fetch("./shader.wgsl");
@@ -508,6 +895,7 @@ async function loadDefaultShader() {
 const main = async () => {
   await loadDefaultShader();
   resizeCanvas();
+  buildSceneEditorUI();
   if (await initWebGPU()) render();
 };
 main();
