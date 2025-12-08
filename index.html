@@ -20,7 +20,7 @@
     >
       <div
         id="canvas-container"
-        class="relative flex items-center justify-center bg-black portrait:w-full portrait:h-1/2 landscape:w-1/2 landscape:h-full"
+        class="relative flex items-center justify-center bg-black portrait:w-full portrait:h-1/2 landscape:w-[70%] landscape:h-full"
       >
         <canvas id="canvas" class="block"></canvas>
         <div
@@ -63,7 +63,7 @@
       </div>
       <div
         id="editor-container"
-        class="flex flex-col bg-gray-800 portrait:w-full portrait:h-1/2 landscape:w-1/2 landscape:h-full"
+        class="flex flex-col bg-gray-800 portrait:w-full portrait:h-1/2 landscape:w-[30%] landscape:h-full"
       >
         <!-- Top toolbar -->
         <div
@@ -141,21 +141,42 @@
                 </svg>
                 <span>Scene Objects</span>
               </div>
+              <select
+                id="primitive-kind-select"
+                class="bg-gray-800 text-sm rounded px-2 py-1 border"
+                style="border-color:#458588; color:#83a598"
+                title="Select primitive type to add"
+              >
+              </select>
               <button
                 id="add-primitive-btn"
                 class="px-2 py-1 text-xs rounded border"
                 style="border-color:#458588; color:#83a598"
-                title="Add a new sphere to the scene"
+                title="Add a new primitive to the scene"
               >
-                + Add Sphere
+                + Add primitive
               </button>
             </div>
 
-            <!-- Scrollable list of primitives -->
-            <div
-              id="scene-list"
-              class="flex-1 overflow-y-auto overflow-x-hidden p-3 space-y-3"
-            ></div>
+            <!-- Object manager -->
+            <div id="object-manager" class="px-3 py-2 border-b flex-1 flex flex-line"
+              style="border-color:#3c3836; color:#ebdbb2">
+
+              <!-- Object details -->
+              <div
+                id="object-details"
+                class="w-1/2 pr-3 border-r overflow-y-auto"
+                style="border-color:#3c3836; width: 60%;"
+              >
+              </div>
+
+              <!-- Object list -->
+              <div
+                id="object-list"
+                class="w-1/2 pl-3 overflow-y-auto"
+                style="border-color:#3c3836; width: auto;">
+              </div>
+            </div>
           </div>
 
           <!-- Shader code editor -->

@@ -6,7 +6,7 @@ fn fs_main(@builtin(position) fragCoord: vec4<f32>) -> @location(0) vec4<f32> {
     return vec4<f32>(uv, 0.5, 1.0);
 }`;
 
-// --- CodeMirror setup ------------------------------------------------------
+//#region CodeMirror setup -------------------------------------------------------
 
 CodeMirror.defineSimpleMode("wgsl", {
   start: [
@@ -40,7 +40,8 @@ const editor = CodeMirror.fromTextArea(document.getElementById("code-editor"), {
 });
 editor.setValue(fallbackShader);
 
-// --- Globals ----------------------------------------------------------------
+//#endregion
+//#region Globals ----------------------------------------------------------------
 
 let device;
 let context;
@@ -69,7 +70,8 @@ const fullscreenExitIcon = $("fullscreen-exit-icon");
 const canvasContainer = $("canvas-container");
 const editorContainer = $("editor-container");
 
-// --- Scene / primitive data model ------------------------------------------
+//#endregion
+//#region Scene / primitive data model -------------------------------------------
 
 const MAX_PRIMS = 16;             // must match WGSL MAX_PRIMS
 const PRIMITIVE_SIZE = 64;        // bytes (Primitive = 4 * vec4 = 64)
@@ -92,14 +94,14 @@ const MAT_GLASS   = 2;
 const MAT_WATER   = 3;
 const MAT_DIFFUSE = 4;
 
-const PRIM_TYPE_LABELS = {
-  [PLANE]: "Plane",
-  [SPHERE]: "Sphere",
-  [BOX]: "Box",
-  [ROUNDED_BOX]: "Rounded Box",
-  [CYLINDER]: "Cylinder",
-  [TORUS]: "Torus",
-  [CAPSULE]: "Capsule",
+const PRIM_KIND_LABELS = {
+  [PLANE]: "plane",
+  [SPHERE]: "sphere",
+  [BOX]: "box",
+  [ROUNDED_BOX]: "rounded Box",
+  [CYLINDER]: "cylinder",
+  [TORUS]: "torus",
+  [CAPSULE]: "capsule",
 };
 
 const MATERIAL_LABELS = {
@@ -110,7 +112,10 @@ const MATERIAL_LABELS = {
   [MAT_DIFFUSE]: "Diffuse",
 };
 
-// This array is what the UI edits + what we upload to the GPU
+let selectedPrimitiveIndex = 1; // or -1 if none selected
+
+//#endregion
+//#region Scene content ----------------------------------------------------------
 let scenePrimitives = [
   // Ground plane
   {
@@ -190,7 +195,8 @@ function updateSceneGPU() {
   device.queue.writeBuffer(sceneBuffer, 0, new Uint8Array(sceneData));
 }
 
-// --- Scene editor UI -------------------------------------------------------
+//#endregion
+//#region Scene editor UI --------------------------------------------------------
 
 function createLabeledNumber(parent, label, value, min, max, step, onChange) {
   const row = document.createElement("div");
@@ -246,11 +252,10 @@ function createVec3Controls(parent, label, vec, range, step, onChange) {
     input.max = range[1];
     input.className = "w-full bg-gray-900 border border-gray-700 text-xs px-1 py-0.5 rounded";
     input.oninput = () => {
-      const copy = [...vec];
       const v = parseFloat(input.value);
       if (!Number.isNaN(v)) {
-        copy[idx] = v;
-        onChange(copy);
+        vec[idx] = v;
+        onChange(vec);
       }
     };
     wrap.appendChild(input);
@@ -295,7 +300,10 @@ function buildPrimitiveControls(body, prim, index) {
     [-5, 5],
     0.1,
     (v) => {
-      scenePrimitives[index].center = v;
+      const c = scenePrimitives[index].center;
+      c[0] = v[0];
+      c[1] = v[1];
+      c[2] = v[2];
       updateSceneGPU();
     },
   );
@@ -497,93 +505,258 @@ function buildPrimitiveControls(body, prim, index) {
   });
 }
 
-function buildSceneEditorUI() {
-  const list = $("scene-list");
+function setupPrimitiveSelect() {
+  const select = $("primitive-kind-select");
+  select.innerHTML = "";
+
+  for (const [kind, label] of Object.entries(PRIM_KIND_LABELS)) {
+    const option = document.createElement("option");
+    option.value = kind;
+    option.textContent = label;
+    select.appendChild(option);
+  }
+}
+setupPrimitiveSelect();
+
+function renderObjectList() {
+  const list = $("object-list");
   if (!list) return;
+
   list.innerHTML = "";
 
   scenePrimitives.forEach((prim, index) => {
-    const card = document.createElement("div");
-    card.className = "border border-gray-700 rounded-lg bg-gray-900/60 overflow-hidden";
+    const row = document.createElement("div");
+    row.className =
+      "flex items-center justify-between px-2 py-1 text-xs cursor-pointer rounded mb-0.5";
 
-    // Header
-    const header = document.createElement("div");
-    header.className = "flex items-center justify-between px-3 py-1.5 text-xs cursor-pointer select-none";
-    header.style.borderBottom = "1px solid #3c3836";
+    // Highlight selected row
+    if (index === selectedPrimitiveIndex) {
+      row.className += " bg-gray-700/70";
+    } else {
+      row.className += " hover:bg-gray-700/40";
+    }
 
+    // Left: icon + label
     const left = document.createElement("div");
-    left.className = "flex flex-col";
-    const title = document.createElement("span");
-    title.textContent = `${PRIM_TYPE_LABELS[prim.kind] ?? "Primitive"} #${index}`;
-    const subtitle = document.createElement("span");
-    subtitle.className = "opacity-60 text-[10px]";
-    subtitle.textContent = MATERIAL_LABELS[prim.materialId] ?? "Unknown material";
-    left.appendChild(title);
-    left.appendChild(subtitle);
+    left.className = "flex items-center gap-2";
 
+    const icon = document.createElement("span");
+    icon.textContent = "◼"; // you can swap for different icons per kind
+    icon.className = "text-[10px] opacity-70";
+
+    const title = document.createElement("span");
+    title.textContent =
+      (PRIM_KIND_LABELS[prim.kind] ?? "Primitive") + " #" + index;
+
+    left.appendChild(icon);
+    left.appendChild(title);
+
+    // Right: small material + delete button
     const right = document.createElement("div");
     right.className = "flex items-center gap-2";
-    const arrow = document.createElement("span");
-    arrow.textContent = "▼";
-    arrow.className = "text-xs";
+
+    const matLabel = document.createElement("span");
+    matLabel.textContent = MATERIAL_LABELS[prim.materialId] ?? "Material";
+    matLabel.className = "text-[10px] opacity-70 ml-1";
+    right.appendChild(matLabel);
+
     const removeBtn = document.createElement("button");
     removeBtn.textContent = "×";
-    removeBtn.className = "w-5 h-5 text-xs rounded-full flex items-center justify-center";
+    removeBtn.className =
+      "w-4 h-4 text-[10px] rounded-full flex items-center justify-center";
     removeBtn.style.background = "#cc241d";
     removeBtn.style.color = "#fbf1c7";
     removeBtn.title = "Remove object";
-
-    right.appendChild(arrow);
     right.appendChild(removeBtn);
 
-    header.appendChild(left);
-    header.appendChild(right);
+    row.appendChild(left);
+    row.appendChild(right);
 
-    // Body
-    const body = document.createElement("div");
-    body.className = "px-3 py-2 text-xs space-y-2";
-
-    buildPrimitiveControls(body, prim, index);
-
-    // Collapsing
-    let open = true;
-    header.onclick = (e) => {
-      // avoid toggling when clicking the remove button
-      if (e.target === removeBtn) return;
-      open = !open;
-      body.style.display = open ? "block" : "none";
-      arrow.textContent = open ? "▼" : "▶";
+    // Click row -> select primitive
+    row.onclick = () => {
+      selectedPrimitiveIndex = index;
+      renderObjectList();
+      renderObjectDetails();
     };
 
-    // Remove primitive
+    // Click delete -> remove primitive
     removeBtn.onclick = (e) => {
       e.stopPropagation();
       scenePrimitives.splice(index, 1);
+
+      // Fix selected index
+      if (scenePrimitives.length === 0) {
+        selectedPrimitiveIndex = -1;
+      } else if (selectedPrimitiveIndex >= scenePrimitives.length) {
+        selectedPrimitiveIndex = scenePrimitives.length - 1;
+      }
+
       updateSceneGPU();
-      buildSceneEditorUI();
+      renderObjectList();
+      renderObjectDetails();
     };
 
-    card.appendChild(header);
-    card.appendChild(body);
-    list.appendChild(card);
+    list.appendChild(row);
   });
+
+  // Empty state
+  if (scenePrimitives.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "text-[11px] opacity-60 px-1 py-1";
+    empty.textContent = "No objects in the scene. Click + Add Sphere.";
+    list.appendChild(empty);
+  }
 }
 
-function addDefaultSphere() {
+function renderObjectDetails() {
+  const details = $("object-details");
+  if (!details) return;
+
+  details.innerHTML = "";
+
+  if (
+    scenePrimitives.length === 0 ||
+    selectedPrimitiveIndex < 0 ||
+    selectedPrimitiveIndex >= scenePrimitives.length
+  ) {
+    const placeholder = document.createElement("div");
+    placeholder.className = "text-[11px] opacity-60";
+    placeholder.textContent = "Select an object from the list to edit its properties.";
+    details.appendChild(placeholder);
+    return;
+  }
+
+  const prim = scenePrimitives[selectedPrimitiveIndex];
+
+  // Header
+  const header = document.createElement("div");
+  header.className = "mb-2 pb-1 border-b";
+  header.style.borderColor = "#3c3836";
+
+  const title = document.createElement("div");
+  title.className = "text-xs font-semibold";
+  title.textContent =
+    (PRIM_KIND_LABELS[prim.kind] ?? "Primitive") +
+    " #" +
+    selectedPrimitiveIndex;
+
+  const subtitle = document.createElement("div");
+  subtitle.className = "text-[10px] opacity-70";
+  subtitle.textContent =
+    "Material: " + (MATERIAL_LABELS[prim.materialId] ?? "Unknown");
+
+  header.appendChild(title);
+  header.appendChild(subtitle);
+  details.appendChild(header);
+
+  // Body controls
+  const body = document.createElement("div");
+  body.className = "text-xs space-y-2";
+  buildPrimitiveControls(body, prim, selectedPrimitiveIndex);
+  details.appendChild(body);
+}
+
+// Call this whenever scene changes (added/removed primitives)
+function buildSceneEditorUI() {
+  // Ensure selected index is valid
+  if (scenePrimitives.length === 0) {
+    selectedPrimitiveIndex = -1;
+  } else if (
+    selectedPrimitiveIndex < 0 ||
+    selectedPrimitiveIndex >= scenePrimitives.length
+  ) {
+    selectedPrimitiveIndex = 0;
+  }
+  renderObjectList();
+  renderObjectDetails();
+}
+
+function makeDefaultPrimitive(kind) {
+  switch (kind) {
+    case SPHERE:
+      return {
+        kind: SPHERE,
+        materialId: MAT_DIFFUSE,
+        center: [0.0, 0.5, 0.0],          // center
+        param0: 0.6,                      // radius
+        params1: [0.0, 0.0, 0.0, 0.0],    // unused
+      };
+
+    case PLANE:
+      return {
+        kind: PLANE,
+        materialId: MAT_GROUND,
+        center: [0.0, 0.0, 0.0],          // unused
+        param0: 1.0,                      // offset h
+        params1: [0.0, 1.0, 0.0, 0.0],    // normal
+      };
+
+    case BOX:
+      return {
+        kind: BOX,
+        materialId: MAT_DIFFUSE,
+        center: [0.0, 0.5, 0.0],          // center
+        param0: 0.0,                      // unused
+        params1: [0.5, 0.5, 0.5, 0.0],    // half-size
+      };
+
+    case ROUNDED_BOX:
+      return {
+        kind: ROUNDED_BOX,
+        materialId: MAT_WATER,
+        center: [0.0, 0.5, 0.0],          // center
+        param0: 0.1,                      // corner radius
+        params1: [0.7, 0.5, 0.7, 0.0],    // half-size
+      };
+
+    case CYLINDER:
+      return {
+        kind: CYLINDER,
+        materialId: MAT_DIFFUSE,
+        center: [0.0, 0.5, 0.0],          // center
+        param0: 1.0,                      // height
+        params1: [0.4, 0.0, 0.0, 0.0],    // radius in x
+      };
+
+    case TORUS:
+      return {
+        kind: TORUS,
+        materialId: MAT_METAL,
+        center: [0.0, 0.5, 0.0],          // center
+        param0: 1.0,                      // major radius
+        params1: [0.25, 0.0, 0.0, 0.0],   // minor radius in x
+      };
+
+    case CAPSULE:
+      return {
+        kind: CAPSULE,
+        materialId: MAT_DIFFUSE,
+        center: [0.0, 1.0, 0.0],          // point A
+        param0: 0.3,                      // radius
+        params1: [ 0.0, 0.0, 0.0, 0.0],   // point B
+      };
+
+    default:
+      return makeDefaultPrimitive(SPHERE);
+  }
+}
+
+function addPrimitive() {
   if (scenePrimitives.length >= MAX_PRIMS) return;
-  scenePrimitives.push({
-    kind: SPHERE,
-    materialId: MAT_DIFFUSE,
-    center: [0.0, 0.0, 0.0],
-    param0: 0.6,
-    params1: [0.0, 0.0, 0.0, 0.0],
-    params2: [0.0, 0.0, 0.0, 0.0],
-  });
+
+  const select = $("primitive-kind-select");
+  const kind = parseInt(select.value, 10);
+
+  console.log("Adding primitive of kind:", kind);
+  let prim = makeDefaultPrimitive(kind);
+
+  scenePrimitives.push(prim);
   updateSceneGPU();
   buildSceneEditorUI();
 }
 
-// --- Canvas --------------------------------------------------
+//#endregion
+//#region Canvas -----------------------------------------------------------------
 
 // Toggle shader code panel
 $("code-toggle").onclick = () => {
@@ -604,9 +777,10 @@ $("code-toggle").onclick = () => {
   setTimeout(() => editor.refresh(), 0);
 };
 
-$("add-primitive-btn").onclick = addDefaultSphere;
+$("add-primitive-btn").onclick = addPrimitive;
 
-// --- WebGPU setup -----------------------------------------------------------
+//#endregion
+//#region WebGPU setup -----------------------------------------------------------
 
 const vertexShader = `@vertex
 fn vs_main(@builtin(vertex_index) vertexIndex: u32) -> @builtin(position) vec4<f32> {
@@ -724,7 +898,8 @@ async function compileShader(fragmentCode) {
   }
 }
 
-// --- Camera setup -----------------------------------------------------------
+//#endregion
+//#region Camera setup -----------------------------------------------------------
 
 let camPos = { x: 0, y: 2, z: 5 };
 let camDir = { x: 0, y: -0.3, z: -1 };
@@ -833,14 +1008,14 @@ canvas.addEventListener("wheel", (e) => {
   e.preventDefault();
 }, { passive: false });
 
-// --- Render loop ------------------------------------------------------------
+//#endregion
+//#region loop -------------------------------------------------------------------
 
 function render() {
   if (!pipeline) {
     requestAnimationFrame(render);
     return;
   }
-
   const currentTime = performance.now();
 
   updateCamera();
@@ -848,8 +1023,8 @@ function render() {
   const data = [
     canvas.width, canvas.height,
     frameCount, 0,
-    camPos.x, camPos.y, camPos.z, mouseDown ? 1 : 0,
-    camDir.x, camDir.y, camDir.z, 0,
+    camPos.x, camPos.y, camPos.z, 0,
+    camDir.x, camDir.y, camDir.z, mouseDown ? 1 : 0,
     camUp.x, camUp.y, camUp.z, 0,
   ];
   device.queue.writeBuffer(uniformBuffer, 0, new Float32Array(data));
@@ -883,7 +1058,8 @@ function render() {
   requestAnimationFrame(render);
 }
 
-// --- Misc UI / window handling ---------------------------------------------
+//#endregion
+//#region Misc UI / window handling ----------------------------------------------
 
 function resizeCanvas() {
   const container = $("canvas-container");
@@ -971,7 +1147,8 @@ document.addEventListener("keydown", (e) => {
 });
 window.addEventListener("resize", resizeCanvas);
 
-// --- Shader loading + main --------------------------------------------------
+//#endregion
+//#region Shader loading + main --------------------------------------------------
 
 async function loadDefaultShader() {
   try {
@@ -994,3 +1171,5 @@ const main = async () => {
   if (await initWebGPU()) render();
 };
 main();
+
+//#endregion
