@@ -50,7 +50,7 @@ let lastFpsUpdate = startTime;
 let mouseX = 0;
 let mouseY = 0;
 let mouseDown = false;
-let isPanelOpen = true;
+let CodePanelOpen = true;
 let isFullscreen = false;
 
 const $ = (id) => document.getElementById(id);
@@ -62,6 +62,11 @@ const fullscreenEnterIcon = $("fullscreen-enter-icon");
 const fullscreenExitIcon = $("fullscreen-exit-icon");
 const canvasContainer = $("canvas-container");
 const editorContainer = $("editor-container");
+
+function setText(id, text) {
+  const el = $(id);
+  if (el) el.textContent = text;
+}
 
 const uniforms = {
   resolution: {
@@ -100,13 +105,6 @@ const uniforms = {
   },
 };
 
-$("uniforms-table").innerHTML = Object.entries(uniforms)
-  .map(
-    ([key, u]) =>
-      `<tr class="border-b" style="border-color:#3c3836"><td class="py-1.5 font-semibold" style="color:#fe8019">${u.label}</td><td class="py-1.5 text-right font-mono" id="u-${key}">${u.initial}</td></tr>`,
-  )
-  .join("");
-
 canvas.addEventListener("mousemove", (e) => {
   const rect = canvas.getBoundingClientRect();
   const dpr = devicePixelRatio || 1;
@@ -119,12 +117,16 @@ canvas.addEventListener("mousedown", () => (mouseDown = true));
 canvas.addEventListener("mouseup", () => (mouseDown = false));
 canvas.addEventListener("mouseleave", () => (mouseDown = false));
 
-$("panel-toggle").onclick = () => {
-  isPanelOpen = !isPanelOpen;
-  $("uniforms-panel").style.width = isPanelOpen ? "250px" : "24px";
-  $("panel-content").style.display = isPanelOpen ? "flex" : "none";
-  $("toggle-arrow").textContent = isPanelOpen ? "▶" : "◀";
+// Toggle the WGSL code editor panel
+$("code-toggle").onclick = () => {
+  CodePanelOpen = !CodePanelOpen;
+  $("code-content").style.display = CodePanelOpen? "block" : "none";
+  $("code-panel").style.flex = CodePanelOpen? "1 1 30%": "0 0 24px";
+  $("code-arrow").textContent = CodePanelOpen? "▼ Shader Code": "▶ Shader Code";
+  // CodeMirror needs a refresh when its container size changes
+  setTimeout(() => editor.refresh(), 0);
 };
+
 
 const vertexShader = `@vertex
 fn vs_main(@builtin(vertex_index) vertexIndex: u32) -> @builtin(position) vec4<f32> {
@@ -147,13 +149,13 @@ const SCENE_HEADER_SIZE = 32;     // bytes (count + padding + vec3<u32>)
 const SCENE_SIZE = SCENE_HEADER_SIZE + MAX_PRIMS * PRIMITIVE_SIZE;
 
 // Match WGSL constants
-const KIND_SPHERE      = 0;
-const KIND_PLANE       = 1;
-const KIND_BOX         = 2;
-const KIND_ROUNDED_BOX = 3;
-const KIND_CYLINDER    = 4;
-const KIND_TORUS       = 5;
-const KIND_CAPSULE     = 6;
+const SPHERE      = 0;
+const PLANE       = 1;
+const BOX         = 2;
+const ROUNDED_BOX = 3;
+const CYLINDER    = 4;
+const TORUS       = 5;
+const CAPSULE     = 6;
 
 const MAT_GROUND  = 0;
 const MAT_METAL   = 1;
@@ -165,7 +167,7 @@ const MAT_DIFFUSE = 4;
 let scenePrimitives = [
   // Ground plane
   {
-    kind: KIND_PLANE,
+    kind: PLANE,
     materialId: MAT_GROUND,
     center: [0.0, 0.0, 0.0],         // unused for plane
     param0: 1.0,                     // offset h
@@ -174,7 +176,7 @@ let scenePrimitives = [
   },
   // Glass sphere
   {
-    kind: KIND_SPHERE,
+    kind: SPHERE,
     materialId: MAT_GLASS,
     center: [0.0, 0.0, 0.0],
     param0: 0.8,
@@ -183,7 +185,7 @@ let scenePrimitives = [
   },
   // Metal sphere
   {
-    kind: KIND_SPHERE,
+    kind: SPHERE,
     materialId: MAT_METAL,
     center: [2.0, -0.2, 0.0],
     param0: 0.8,
@@ -192,7 +194,7 @@ let scenePrimitives = [
   },
   // Water rounded box
   {
-    kind: KIND_ROUNDED_BOX,
+    kind: ROUNDED_BOX,
     materialId: MAT_WATER,
     center: [-2.0, -0.5, 0.0],
     param0: 0.1,                           // corner radius
@@ -201,7 +203,7 @@ let scenePrimitives = [
   },
   // Diffuse sphere
   {
-    kind: KIND_SPHERE,
+    kind: SPHERE,
     materialId: MAT_DIFFUSE,
     center: [0.0, -0.5, 2.0],
     param0: 0.5,
@@ -362,12 +364,17 @@ function render() {
   device.queue.writeBuffer(uniformBuffer, 0, new Float32Array(data));
 
   const val = uniforms.resolution.update(canvas.width, canvas.height);
-  if (val) $("u-resolution").textContent = val;
-  $("u-time").textContent = uniforms.time.update(elapsedTime);
-  $("u-deltaTime").textContent = uniforms.deltaTime.update(deltaTime);
-  $("u-mousexy").textContent = uniforms.mousexy.update(mouseX, mouseY);
-  $("u-frame").textContent = uniforms.frame.update(frameCount);
-  uniforms.mousez.update(mouseDown);
+  if (val) setText("u-resolution", val);
+
+  setText("u-time", uniforms.time.update(elapsedTime));
+  setText("u-deltaTime", uniforms.deltaTime.update(deltaTime));
+  setText("u-mousexy", uniforms.mousexy.update(mouseX, mouseY));
+  setText("u-frame", uniforms.frame.update(frameCount));
+
+  const mouseInd = $("mouse-ind");
+  if (mouseInd) {
+    uniforms.mousez.update(mouseDown);
+  }
 
   lastFrameTime = currentTime;
 
@@ -490,10 +497,10 @@ async function loadDefaultShader() {
     if (response.ok) {
       fallbackShader = await response.text();
     } else {
-      console.warn("raymarch_glass.wgsl not found, using fallback shader");
+      console.warn("shader.wgsl not found, using fallback shader");
     }
   } catch (err) {
-    console.warn("Failed to load raymarch_glass.wgsl, using fallback");
+    console.warn("Failed to load shader.wgsl, using fallback");
   }
   editor.setValue(fallbackShader);
 }

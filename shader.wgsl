@@ -159,6 +159,7 @@ fn sd_capsule(p: vec3<f32>, c: Primitive) -> f32 {
   return length(pa - ba * h) - radius;
 }
 
+// Primitive kinds
 const SPHERE      : u32 = 0u;
 const PLANE       : u32 = 1u;
 const BOX         : u32 = 2u;
