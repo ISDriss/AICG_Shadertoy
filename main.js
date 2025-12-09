@@ -6,41 +6,6 @@ fn fs_main(@builtin(position) fragCoord: vec4<f32>) -> @location(0) vec4<f32> {
     return vec4<f32>(uv, 0.5, 1.0);
 }`;
 
-//#region CodeMirror setup -------------------------------------------------------
-
-CodeMirror.defineSimpleMode("wgsl", {
-  start: [
-    { regex: /\b(fn|let|var|const|if|else|for|while|loop|return|break|continue|discard|switch|case|default|struct|type|alias)\b/, token: "keyword" },
-    { regex: /\b(bool|i32|u32|f32|f16|vec2|vec3|vec4|mat2x2|mat3x3|mat4x4|array|sampler|texture_2d|texture_3d)\b/, token: "type" },
-    { regex: /\b(vec2|vec3|vec4|mat2x2|mat3x3|mat4x4|array)<[^>]+>/, token: "type" },
-    { regex: /\b(abs|acos|all|any|asin|atan|atan2|ceil|clamp|cos|cosh|cross|degrees|determinant|distance|dot|exp|exp2|faceforward|floor|fma|fract|frexp|inversesqrt|ldexp|length|log|log2|max|min|mix|modf|normalize|pow|radians|reflect|refract|round|sign|sin|sinh|smoothstep|sqrt|step|tan|tanh|transpose|trunc)\b/, token: "builtin" },
-    { regex: /@(vertex|fragment|compute|builtin|location|binding|group|stage|workgroup_size|interpolate|invariant)/, token: "attribute" },
-    { regex: /\b\d+\.?\d*[fu]?\b|0x[0-9a-fA-F]+[ul]?/, token: "number" },
-    { regex: /\/\/.*/, token: "comment" },
-    { regex: /\/\*/, token: "comment", next: "comment" },
-    { regex: /[+\-*/%=<>!&|^~?:]/, token: "operator" },
-    { regex: /[{}()\[\];,\.]/, token: "punctuation" },
-  ],
-  comment: [
-    { regex: /.*?\*\//, token: "comment", next: "start" },
-    { regex: /.*/, token: "comment" },
-  ],
-}); // prettier-ignore
-
-const editor = CodeMirror.fromTextArea(document.getElementById("code-editor"), {
-  mode: "wgsl",
-  theme: "gruvbox-dark-hard",
-  lineNumbers: true,
-  lineWrapping: true,
-  value: fallbackShader,
-  tabSize: 2,
-  indentUnit: 2,
-  viewportMargin: Infinity,
-  scrollbarStyle: "native",
-});
-editor.setValue(fallbackShader);
-
-//#endregion
 //#region Globals ----------------------------------------------------------------
 
 let device;
@@ -57,7 +22,6 @@ let lastFpsUpdate = startTime;
 let mouseX = 0;
 let mouseY = 0;
 let mouseDown = false;
-let codePanelOpen = true;
 let isFullscreen = false;
 
 const $ = (id) => document.getElementById(id);
@@ -69,6 +33,7 @@ const fullscreenEnterIcon = $("fullscreen-enter-icon");
 const fullscreenExitIcon = $("fullscreen-exit-icon");
 const canvasContainer = $("canvas-container");
 const editorContainer = $("editor-container");
+let shaderSource = fallbackShader;
 
 //#endregion
 //#region Scene / primitive data model -------------------------------------------
@@ -748,31 +713,10 @@ function addPrimitive() {
   let prim = makeDefaultPrimitive(kind);
 
   scenePrimitives.push(prim);
+  selectedPrimitiveIndex = scenePrimitives.length - 1;
   updateSceneGPU();
   buildSceneEditorUI();
 }
-
-//#endregion
-//#region Canvas -----------------------------------------------------------------
-
-// Toggle shader code panel
-$("code-toggle").onclick = () => {
-  codePanelOpen = !codePanelOpen;
-  const codePanel = $("code-panel");
-  const codeContent = $("code-content");
-  const codeArrow = $("code-arrow");
-
-  if (codePanelOpen) {
-    codePanel.style.height = "260px";
-    codeContent.style.display = "block";
-    codeArrow.textContent = "▼ Shader Code";
-  } else {
-    codePanel.style.height = "24px";
-    codeContent.style.display = "none";
-    codeArrow.textContent = "▶ Shader Code";
-  }
-  setTimeout(() => editor.refresh(), 0);
-};
 
 $("add-primitive-btn").onclick = addPrimitive;
 
@@ -829,7 +773,7 @@ async function initWebGPU() {
   });
   device.queue.writeBuffer(sceneBuffer, 0, new Uint8Array(sceneData));
 
-  await compileShader(fallbackShader);
+  await compileShader(shaderSource);
   return true;
 }
 
@@ -1067,7 +1011,7 @@ function resizeCanvas() {
   canvas.style.height = container.clientHeight + "px";
 }
 
-compileBtn.onclick = () => compileShader(editor.getValue());
+compileBtn.onclick = () => compileShader(shaderSource);
 
 function toggleFullscreen() {
   if (
@@ -1133,13 +1077,11 @@ document.addEventListener("MSFullscreenChange", updateFullscreenUI);
 document.addEventListener("keydown", (e) => {
   if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
     e.preventDefault();
-    compileShader(editor.getValue());
+    compileShader(shaderSource);
   }
   if (e.key === "f" && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
-    if (document.activeElement !== editor.getInputField()) {
-      e.preventDefault();
-      toggleFullscreen();
-    }
+    e.preventDefault();
+    toggleFullscreen();
   }
 });
 window.addEventListener("resize", resizeCanvas);
@@ -1158,7 +1100,7 @@ async function loadDefaultShader() {
   } catch (err) {
     console.warn("Failed to load shader.wgsl, using fallback");
   }
-  editor.setValue(fallbackShader);
+  shaderSource = fallbackShader;
 }
 
 const main = async () => {

@@ -37,18 +37,13 @@ This project is built as a complete assignment solution for an advanced GPU prog
 
 ## Features
 
-### 🎨 Real-Time Shader Editing
-- Built-in CodeMirror WGSL editor  
-- Syntax highlighting, live error reporting, instant recompilation  
-- No page reload necessary  
-
-### 🧱 Interactive Scene Editor
+### Interactive Scene Editor
 - Add/remove primitives dynamically  
 - Edit parameters: position, radius, size, normals, height, endpoints, etc.  
 - Material selector with predefined shading models  
 - Auto-updating GPU buffer — no need to recompile  
 
-### 🧊 Supported Primitives
+### Supported Primitives
 - Sphere  
 - Plane  
 - Box  
@@ -57,18 +52,18 @@ This project is built as a complete assignment solution for an advanced GPU prog
 - Torus  
 - Capsule  
 
-### 🌀 Orbit Camera (Blender-like)
+### Orbit Camera (Blender-like)
 - Alt + LMB or MMB — Orbit  
 - Shift + MMB — Pan  
 - Ctrl + MMB — Zoom  
 - Scroll wheel — Zoom  
 
-### ⚡ Fully GPU-Driven Scene
+### Fully GPU-Driven Scene
 - Scene is serialized into a tightly packed uniform buffer  
 - WGSL shader reads a Scene struct with a fixed-size array of primitives  
 - No hardcoded scene logic inside the shader  
 
-### 🌈 Advanced Ray Marching Pipeline
+### Advanced Ray Marching Pipeline
 - Soft shadows  
 - Fresnel reflections  
 - Glass & water refraction  
@@ -80,7 +75,7 @@ This project is built as a complete assignment solution for an advanced GPU prog
 
 ## Live Demo
 
-👉 **Experience it here:**  
+**Experience it here:**  
 ### 🔗 https://isdriss.github.io/AICG_Shadertoy/
 
 ---
@@ -122,7 +117,6 @@ http://localhost:8000
 - WGSL — shader language powering ray marching  
 - JavaScript — UI, buffer management, compilation orchestration  
 - HTML/CSS (Tailwind-inspired) — layout & styling  
-- CodeMirror — embedded shader editor  
 
 ---
 

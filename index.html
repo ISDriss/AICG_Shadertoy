@@ -5,12 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>WebGPU Shadertoy</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link
-      rel="stylesheet"
-      href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.css"
-    />
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/mode/simple.min.js"></script>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body class="font-mono bg-gray-900 text-white overflow-hidden">
@@ -176,28 +170,6 @@
                 class="w-1/2 pl-3 overflow-y-auto"
                 style="border-color:#3c3836; width: auto;">
               </div>
-            </div>
-          </div>
-
-          <!-- Shader code editor -->
-          <div
-            id="code-panel"
-            class="flex flex-col flex-none transition-all duration-300 overflow-hidden"
-            style="height: 260px"
-          >
-            <div
-              id="code-toggle"
-              class="w-full h-7 cursor-pointer hover:opacity-80 flex items-center px-2 text-xs"
-              style="background: #3c3836; color: #a89984"
-            >
-              <span id="code-arrow">▼ Shader Code</span>
-            </div>
-            <div
-              id="code-content"
-              class="flex-1 overflow-hidden"
-              style="background: #1d2021"
-            >
-              <textarea id="code-editor"></textarea>
             </div>
           </div>
         </div>
